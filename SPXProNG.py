@@ -654,7 +654,7 @@ def generate_line_series(anchor_price: float, anchor_time: datetime,
 def render_visual_ladder(lines: list, current_price: float = None, 
                           title: str = "Line Ladder", height: int = 600,
                           show_zones: bool = True, show_distances: bool = True):
-    """Render ladder using HTML table - guaranteed Streamlit compatible."""
+    """Render a beautiful ladder using styled HTML table."""
     import streamlit as st
     
     sorted_lines = sorted(lines, key=lambda x: x['value'], reverse=True)
@@ -665,54 +665,103 @@ def render_visual_ladder(lines: list, current_price: float = None,
     price_inserted = False
     
     for line in sorted_lines:
+        # ── Price marker row ──
         if current_price is not None and not price_inserted and line['value'] < current_price:
-            rows += '<tr style="background:rgba(0,212,255,0.08);">'
-            rows += '<td style="padding:10px 12px;color:#00d4ff;font-size:1.1rem;font-weight:700;">◆</td>'
-            rows += '<td style="padding:10px 12px;color:#00d4ff;font-weight:700;">LIVE PRICE</td>'
-            rows += f'<td style="padding:10px 12px;color:#00d4ff;font-weight:700;text-align:right;font-size:1.05rem;">{current_price:.2f}</td>'
-            rows += '<td style="padding:10px 12px;"></td>'
+            above = [l for l in sorted_lines if l['value'] > current_price]
+            below = [l for l in sorted_lines if l['value'] <= current_price]
+            dist_up = f"▲ {(above[-1]['value'] - current_price):.1f}pt" if above else ""
+            dist_dn = f"▼ {(current_price - below[0]['value']):.1f}pt" if below else ""
+            
+            rows += '<tr>'
+            rows += '<td colspan="4" style="padding:0;height:2px;background:rgba(0,212,255,0.15);"></td>'
+            rows += '</tr>'
+            rows += '<tr style="background:rgba(0,212,255,0.06);">'
+            rows += '<td style="padding:14px 16px;color:#00d4ff;font-size:1.4rem;width:40px;text-align:center;">◆</td>'
+            rows += f'<td style="padding:14px 8px;color:#00d4ff;font-weight:700;font-size:1rem;letter-spacing:1px;">◉ LIVE PRICE</td>'
+            rows += f'<td style="padding:14px 8px;color:#00d4ff;font-weight:700;text-align:right;font-size:1.15rem;">{current_price:.2f}</td>'
+            rows += f'<td style="padding:14px 16px;color:rgba(0,212,255,0.4);font-size:0.7rem;text-align:right;white-space:nowrap;">{dist_up} {dist_dn}</td>'
+            rows += '</tr>'
+            rows += '<tr>'
+            rows += '<td colspan="4" style="padding:0;height:2px;background:rgba(0,212,255,0.15);"></td>'
             rows += '</tr>'
             price_inserted = True
         
+        # ── Line row ──
         is_key = line.get('is_key', False)
         color = line.get('color', '#888')
         label = line.get('label', '')
         full_name = line.get('full_name', '')
         value = line['value']
+        direction = line.get('direction', 'ascending')
         
-        marker = "◆" if is_key else "─"
-        fw = "700" if is_key else "400"
-        fs = "0.95rem" if is_key else "0.85rem"
-        bg = "rgba(255,255,255,0.02)" if is_key else "transparent"
+        if is_key:
+            marker = "◆"
+            fw = "700"
+            fs = "0.95rem"
+            vfs = "1.05rem"
+            pad = "12px"
+            bg = f"rgba(255,255,255,0.025)"
+            border = f"4px solid {color}"
+            name_display = full_name[:20]
+        else:
+            marker = "│"
+            fw = "500"
+            fs = "0.82rem"
+            vfs = "0.88rem"
+            pad = "8px"
+            bg = "transparent"
+            border = f"2px solid {color}60"
+            name_display = full_name[:16]
         
+        # Distance from price
         dist_text = ""
+        dist_color = "#3a4a6a"
         if current_price is not None:
             dist = value - current_price
-            dist_text = f"{dist:+.1f}pt"
+            if dist > 0:
+                dist_text = f"+{dist:.1f}"
+                dist_color = "#3a5a4a"
+            else:
+                dist_text = f"{dist:.1f}"
+                dist_color = "#5a3a3a"
         
+        # Hit indicator
         hit = line.get('touched', None)
         hit_text = ""
         if hit is True:
-            hit_text = "✅ HIT"
+            hit_text = " ✅"
         elif hit is False:
-            hit_text = "· · ·"
+            hit_text = ""
         
-        rows += f'<tr style="background:{bg};border-left:3px solid {color};">'
-        rows += f'<td style="padding:6px 12px;color:{color};font-size:1rem;">{marker}</td>'
-        rows += f'<td style="padding:6px 12px;color:{color};font-weight:{fw};font-size:{fs};">{label} {full_name[:18]}</td>'
-        rows += f'<td style="padding:6px 12px;color:#ccd6f6;font-weight:700;text-align:right;font-size:{fs};">{value:.2f}</td>'
-        rows += f'<td style="padding:6px 12px;color:#3a4a6a;font-size:0.75rem;text-align:right;">{dist_text} {hit_text}</td>'
+        # Direction arrow
+        arrow = "↗" if direction == 'ascending' else "↘"
+        
+        rows += f'<tr style="background:{bg};border-left:{border};">'
+        rows += f'<td style="padding:{pad} 10px;color:{color};font-size:1.1rem;width:30px;text-align:center;">{marker}</td>'
+        rows += f'<td style="padding:{pad} 8px;color:{color};font-weight:{fw};font-size:{fs};">{label} {arrow} {name_display}{hit_text}</td>'
+        rows += f'<td style="padding:{pad} 8px;color:#ccd6f6;font-weight:700;text-align:right;font-size:{vfs};">{value:.2f}</td>'
+        rows += f'<td style="padding:{pad} 16px;color:{dist_color};font-size:0.72rem;text-align:right;width:70px;">{dist_text}</td>'
         rows += '</tr>'
+        
+        # Thin separator for key levels
+        if is_key:
+            rows += '<tr>'
+            rows += f'<td colspan="4" style="padding:0;height:1px;background:{color}15;"></td>'
+            rows += '</tr>'
     
+    # Price below all lines
     if current_price is not None and not price_inserted:
-        rows += '<tr style="background:rgba(0,212,255,0.08);">'
-        rows += '<td style="padding:10px 12px;color:#00d4ff;font-size:1.1rem;font-weight:700;">◆</td>'
-        rows += '<td style="padding:10px 12px;color:#00d4ff;font-weight:700;">LIVE PRICE</td>'
-        rows += f'<td style="padding:10px 12px;color:#00d4ff;font-weight:700;text-align:right;font-size:1.05rem;">{current_price:.2f}</td>'
-        rows += '<td style="padding:10px 12px;"></td>'
+        rows += '<tr>'
+        rows += '<td colspan="4" style="padding:0;height:2px;background:rgba(0,212,255,0.15);"></td>'
+        rows += '</tr>'
+        rows += '<tr style="background:rgba(0,212,255,0.06);">'
+        rows += '<td style="padding:14px 16px;color:#00d4ff;font-size:1.4rem;width:40px;text-align:center;">◆</td>'
+        rows += f'<td style="padding:14px 8px;color:#00d4ff;font-weight:700;font-size:1rem;letter-spacing:1px;">◉ LIVE PRICE</td>'
+        rows += f'<td style="padding:14px 8px;color:#00d4ff;font-weight:700;text-align:right;font-size:1.15rem;">{current_price:.2f}</td>'
+        rows += '<td style="padding:14px 16px;"></td>'
         rows += '</tr>'
     
-    table = f'<table style="width:100%;border-collapse:collapse;font-family:JetBrains Mono,monospace;">{rows}</table>'
+    table = f'<table style="width:100%;border-collapse:collapse;font-family:JetBrains Mono,monospace;border-spacing:0;">{rows}</table>'
     st.markdown(table, unsafe_allow_html=True)
 
 
