@@ -654,163 +654,109 @@ def generate_line_series(anchor_price: float, anchor_time: datetime,
 def render_visual_ladder(lines: list, current_price: float = None, 
                           title: str = "Line Ladder", height: int = 600,
                           show_zones: bool = True, show_distances: bool = True):
-    """Render a polished inline ladder — no iframes, inherits app theme."""
+    """Render a polished ladder using only Streamlit-safe CSS."""
     import streamlit as st
     
     sorted_lines = sorted(lines, key=lambda x: x['value'], reverse=True)
     if not sorted_lines:
         return
     
-    html = '<div style="font-family: JetBrains Mono, monospace; font-size: 0.85rem; position:relative; padding: 4px 0;">'
-    
+    rows = ""
     price_inserted = False
     
     for i, line in enumerate(sorted_lines):
         # Insert price marker when we pass it
-        if current_price and not price_inserted and line['value'] < current_price:
-            # Distance to nearest above and below
-            above_lines = [l for l in sorted_lines if l['value'] > current_price]
-            below_lines = [l for l in sorted_lines if l['value'] <= current_price]
-            dist_up = f"{(above_lines[-1]['value'] - current_price):.1f}pt ↑" if above_lines else ""
-            dist_dn = f"{(current_price - below_lines[0]['value']):.1f}pt ↓" if below_lines else ""
+        if current_price is not None and not price_inserted and line['value'] < current_price:
+            above = [l for l in sorted_lines if l['value'] > current_price]
+            below = [l for l in sorted_lines if l['value'] <= current_price]
+            dist_up = f"<span style='color:#00d4ff80;font-size:0.7rem;'>▲ {(above[-1]['value'] - current_price):.1f}pt to {above[-1].get('label','')}</span>" if above else ""
+            dist_dn = f"<span style='color:#00d4ff80;font-size:0.7rem;'>▼ {(current_price - below[0]['value']):.1f}pt to {below[0].get('label','')}</span>" if below else ""
             
-            html += f"""
-            <div style="display:flex; align-items:center; padding: 10px 16px; margin: 6px 0;
-                        background: linear-gradient(90deg, rgba(0,212,255,0.06) 0%, rgba(0,212,255,0.02) 100%);
-                        border: 1px solid rgba(0,212,255,0.25); border-radius: 10px;
-                        box-shadow: 0 0 20px rgba(0,212,255,0.05); position:relative;
-                        animation: fade-in-up 0.4s ease {i*0.04}s both;">
-                <div style="width:10px; height:10px; background:#00d4ff; transform:rotate(45deg); 
-                            box-shadow: 0 0 8px rgba(0,212,255,0.8); margin-right:12px; flex-shrink:0;"></div>
-                <span style="font-family: Orbitron, monospace; color: #00d4ff; font-size: 0.85rem; font-weight:700; flex:1;
-                            text-shadow: 0 0 10px rgba(0,212,255,0.3);">
-                    ◉ PRICE
-                </span>
-                <span style="font-family: JetBrains Mono, monospace; color: #00d4ff; font-size: 1.05rem; font-weight:700;
-                            text-shadow: 0 0 10px rgba(0,212,255,0.3);">
-                    {current_price:.2f}
-                </span>
-                <span style="color: rgba(0,212,255,0.35); font-size: 0.7rem; margin-left:12px; min-width:60px; text-align:right;">
-                    {dist_up}
-                </span>
+            rows += f"""<div style="display:flex;align-items:center;padding:12px 16px;margin:6px 0;
+                        background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.3);border-radius:10px;">
+                <span style="color:#00d4ff;font-size:1.3rem;margin-right:10px;">◆</span>
+                <span style="color:#00d4ff;font-size:0.9rem;font-weight:700;flex:1;">LIVE PRICE</span>
+                <span style="color:#00d4ff;font-size:1.1rem;font-weight:700;">{current_price:.2f}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:0 20px;margin-bottom:6px;">
+                {dist_up}{dist_dn}
             </div>"""
             price_inserted = True
         
         # Line row
         is_key = line.get('is_key', False)
-        direction = line.get('direction', 'ascending')
         color = line.get('color', '#888')
         label = line.get('label', '')
         full_name = line.get('full_name', '')
         value = line['value']
         
-        # Styling based on key vs secondary
         if is_key:
-            bg = f"linear-gradient(90deg, {color}12 0%, {color}04 100%)"
-            border_w = "3px"
-            font_size = "0.9rem"
-            font_weight = "700"
-            val_size = "1rem"
-            opacity = "1"
+            border_w = "4px"
+            font_w = "700"
+            fsize = "0.95rem"
+            vsize = "1.05rem"
             pad = "10px 16px"
-            icon = "◆ " if 'W' in label else "◇ "
+            bg = f"rgba(0,0,0,0.15)"
+            marker = "◆"
         else:
-            bg = f"linear-gradient(90deg, {color}08 0%, transparent 100%)"
             border_w = "2px"
-            font_size = "0.8rem"
-            font_weight = "500"
-            val_size = "0.9rem"
-            opacity = "0.7"
+            font_w = "500"
+            fsize = "0.82rem"
+            vsize = "0.88rem"
             pad = "7px 16px"
-            icon = ""
+            bg = "transparent"
+            marker = "│"
         
-        # Distance from price
         dist_html = ""
-        if current_price:
+        if current_price is not None:
             dist = value - current_price
-            dist_color = "rgba(255,255,255,0.15)"
-            dist_html = f'<span style="color:{dist_color}; font-size:0.7rem; min-width:70px; text-align:right;">{dist:+.1f}pt</span>'
+            dist_html = f'<span style="color:#3a4a6a;font-size:0.7rem;min-width:65px;text-align:right;">{dist:+.1f}pt</span>'
         
-        # Hit indicator (for lines that have been touched)
         touched = line.get('touched', None)
         hit_html = ""
         if touched is True:
-            hit_html = '<span style="color:#00e676; font-size:0.8rem; min-width:50px; text-align:right;">✅ HIT</span>'
+            hit_html = '<span style="color:#00e676;font-size:0.8rem;min-width:50px;text-align:right;">✅ HIT</span>'
         elif touched is False:
-            hit_html = '<span style="color:#3a4a6a; font-size:0.8rem; min-width:50px; text-align:right;">· · ·</span>'
+            hit_html = '<span style="color:#3a4a6a;font-size:0.7rem;min-width:50px;text-align:right;">· · ·</span>'
         
-        delay = i * 0.03
-        
-        html += f"""
-        <div style="display:flex; align-items:center; justify-content:space-between; 
-                    padding: {pad}; margin: 2px 0;
-                    background: {bg}; border-left: {border_w} solid {color};
-                    border-radius: 0 8px 8px 0; opacity:{opacity};
-                    animation: fade-in-up 0.3s ease {delay}s both;">
-            <span style="color: {color}; font-size:{font_size}; font-weight:{font_weight}; min-width:160px;">
-                {icon}{label} <span style="color:{color}88; font-size:0.7rem;">{full_name[:20]}</span>
-            </span>
-            <span style="color: #ccd6f6; font-weight: 700; font-size:{val_size}; min-width:80px; text-align:right;">
-                {value:.2f}
-            </span>
+        rows += f"""<div style="display:flex;align-items:center;justify-content:space-between;
+                    padding:{pad};margin:1px 0;background:{bg};
+                    border-left:{border_w} solid {color};border-radius:0 6px 6px 0;">
+            <span style="color:{color};font-size:0.85rem;margin-right:6px;">{marker}</span>
+            <span style="color:{color};font-size:{fsize};font-weight:{font_w};min-width:140px;">{label} <span style="color:{color}80;font-size:0.7rem;">{full_name[:20]}</span></span>
+            <span style="color:#ccd6f6;font-weight:700;font-size:{vsize};min-width:80px;text-align:right;">{value:.2f}</span>
             {dist_html}
             {hit_html}
         </div>"""
     
     # If price below all lines
-    if current_price and not price_inserted:
-        html += f"""
-        <div style="display:flex; align-items:center; padding: 10px 16px; margin: 6px 0;
-                    background: linear-gradient(90deg, rgba(0,212,255,0.06) 0%, rgba(0,212,255,0.02) 100%);
-                    border: 1px solid rgba(0,212,255,0.25); border-radius: 10px;
-                    box-shadow: 0 0 20px rgba(0,212,255,0.05);">
-            <div style="width:10px; height:10px; background:#00d4ff; transform:rotate(45deg); 
-                        box-shadow: 0 0 8px rgba(0,212,255,0.8); margin-right:12px;"></div>
-            <span style="font-family: Orbitron, monospace; color: #00d4ff; font-size: 0.85rem; font-weight:700; flex:1;">
-                ◉ PRICE
-            </span>
-            <span style="font-family: JetBrains Mono; color: #00d4ff; font-size: 1.05rem; font-weight:700;">
-                {current_price:.2f}
-            </span>
+    if current_price is not None and not price_inserted:
+        rows += f"""<div style="display:flex;align-items:center;padding:12px 16px;margin:6px 0;
+                    background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.3);border-radius:10px;">
+            <span style="color:#00d4ff;font-size:1.3rem;margin-right:10px;">◆</span>
+            <span style="color:#00d4ff;font-size:0.9rem;font-weight:700;flex:1;">LIVE PRICE</span>
+            <span style="color:#00d4ff;font-size:1.1rem;font-weight:700;">{current_price:.2f}</span>
         </div>"""
     
-    html += '</div>'
-    st.markdown(html, unsafe_allow_html=True)
+    st.markdown(f'<div style="font-family:JetBrains Mono,monospace;">{rows}</div>', unsafe_allow_html=True)
 
 
 def render_signal_display(signal_text: str, signal_detail: str, signal_class: str):
-    """Render polished signal display — inline HTML, no iframe."""
+    """Render polished signal display — Streamlit-safe HTML."""
     import streamlit as st
     
     color = '#00e676' if signal_class == 'bull' else '#ff1744' if signal_class == 'bear' else '#ffd740'
-    bg = f'rgba(0,230,118,0.04)' if signal_class == 'bull' else 'rgba(255,23,68,0.04)' if signal_class == 'bear' else 'rgba(255,215,64,0.04)'
-    icon = '🔺' if signal_class == 'bull' else '🔻' if signal_class == 'bear' else '⏸'
+    bg = 'rgba(0,230,118,0.04)' if signal_class == 'bull' else 'rgba(255,23,68,0.04)' if signal_class == 'bear' else 'rgba(255,215,64,0.04)'
+    icon = '🟢' if signal_class == 'bull' else '🔴' if signal_class == 'bear' else '🟡'
     
     st.markdown(f"""
-    <div style="text-align:center; padding: 24px 20px; margin: 8px 0;
-                background: {bg}; border: 1px solid {color}30; border-radius: 16px;
-                position:relative; overflow:hidden;
-                animation: fade-in-up 0.5s ease;">
-        
-        <!-- Corner accents -->
-        <div style="position:absolute;top:0;left:0;width:40px;height:2px;background:linear-gradient(90deg,{color},{color}00);"></div>
-        <div style="position:absolute;top:0;left:0;width:2px;height:40px;background:linear-gradient(180deg,{color},{color}00);"></div>
-        <div style="position:absolute;top:0;right:0;width:40px;height:2px;background:linear-gradient(-90deg,{color},{color}00);"></div>
-        <div style="position:absolute;top:0;right:0;width:2px;height:40px;background:linear-gradient(180deg,{color},{color}00);"></div>
-        <div style="position:absolute;bottom:0;left:0;width:40px;height:2px;background:linear-gradient(90deg,{color},{color}00);"></div>
-        <div style="position:absolute;bottom:0;left:0;width:2px;height:40px;background:linear-gradient(0deg,{color},{color}00);"></div>
-        <div style="position:absolute;bottom:0;right:0;width:40px;height:2px;background:linear-gradient(-90deg,{color},{color}00);"></div>
-        <div style="position:absolute;bottom:0;right:0;width:2px;height:40px;background:linear-gradient(0deg,{color},{color}00);"></div>
-        
-        <div style="font-size: 2rem; margin-bottom: 8px;">{icon}</div>
-        
-        <div style="font-family: 'Orbitron', monospace; font-size: 1.4rem; color: {color}; font-weight: 700;
-                    letter-spacing: 1px;">
+    <div style="text-align:center;padding:28px 20px;margin:8px 0;
+                background:{bg};border:1px solid {color}30;border-radius:16px;">
+        <div style="font-size:2.5rem;margin-bottom:10px;">{icon}</div>
+        <div style="font-family:Orbitron,monospace;font-size:1.4rem;color:{color};font-weight:700;letter-spacing:1px;">
             {signal_text}
         </div>
-        
-        <div style="font-family: 'Rajdhani', sans-serif; font-size: 0.95rem; color: #8892b0; margin-top: 10px;
-                    line-height: 1.4;">
+        <div style="font-family:Rajdhani,sans-serif;font-size:0.95rem;color:#8892b0;margin-top:10px;line-height:1.4;">
             {signal_detail}
         </div>
     </div>
@@ -818,47 +764,33 @@ def render_signal_display(signal_text: str, signal_detail: str, signal_class: st
 
 
 def render_scenario_cards(scenarios: list, num_contracts: int = 3):
-    """Render premium scenario cards — inline HTML grid."""
+    """Render premium scenario cards — Streamlit-safe HTML grid."""
     import streamlit as st
     
-    html = '<div style="display:grid; grid-template-columns: repeat(4, 1fr); gap: 10px;">'
+    html = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">'
     
-    for i, s in enumerate(scenarios):
+    for s in scenarios:
         pnl_per_contract = (s['premium'] - s['entry_premium']) * 100
         pnl_total = pnl_per_contract * num_contracts
         pnl_color = '#00e676' if pnl_total >= 0 else '#ff1744'
         pnl_sign = '+' if pnl_total >= 0 else ''
         pnl_pct = ((s['premium'] - s['entry_premium']) / s['entry_premium'] * 100) if s['entry_premium'] > 0 else 0
         color = s['color']
-        delay = i * 0.08
         
-        html += f"""
-        <div style="background: linear-gradient(145deg, #131a2e 0%, #0a0f1a 100%);
-                    border: 1px solid {color}25; border-radius: 12px; padding: 14px 10px; text-align:center;
-                    position:relative; overflow:hidden;
-                    animation: fade-in-up 0.4s ease {delay}s both;">
-            
-            <!-- Top accent line -->
-            <div style="position:absolute;top:0;left:0;right:0;height:2px;
-                        background:linear-gradient(90deg,transparent,{color}60,transparent);"></div>
-            
-            <div style="font-family: Rajdhani, sans-serif; color:{color}; font-size:0.7rem; 
-                        text-transform:uppercase; letter-spacing:1.5px; font-weight:600;">{s['label']}</div>
-            <div style="font-family: JetBrains Mono; color:#3a4a6a; font-size:0.65rem; margin:2px 0;">{s['spx_label']}</div>
-            <div style="font-family: JetBrains Mono; color:{color}; font-size:1.4rem; font-weight:700; margin:4px 0;">
+        html += f"""<div style="background:rgba(16,22,40,0.8);border:1px solid {color}25;border-radius:12px;
+                    padding:14px 10px;text-align:center;border-top:2px solid {color}60;">
+            <div style="font-family:Rajdhani,sans-serif;color:{color};font-size:0.7rem;text-transform:uppercase;
+                        letter-spacing:1.5px;font-weight:600;">{s['label']}</div>
+            <div style="font-family:JetBrains Mono,monospace;color:#3a4a6a;font-size:0.65rem;margin:2px 0;">{s['spx_label']}</div>
+            <div style="font-family:JetBrains Mono,monospace;color:{color};font-size:1.4rem;font-weight:700;margin:4px 0;">
                 ${s['premium']:.2f}</div>
-            <div style="font-family: JetBrains Mono; color:#3a4a6a; font-size:0.65rem;">${s['premium']*100:.0f}/contract</div>
-            
-            <!-- P&L bar -->
-            <div style="height:3px; background:rgba(255,255,255,0.03); border-radius:2px; margin:8px 4px 4px; overflow:hidden;">
-                <div style="height:100%; width:{min(abs(pnl_pct), 100):.0f}%; background:{pnl_color}; border-radius:2px;
-                            transition: width 1s ease;"></div>
+            <div style="font-family:JetBrains Mono,monospace;color:#3a4a6a;font-size:0.65rem;">${s['premium']*100:.0f}/contract</div>
+            <div style="height:3px;background:rgba(255,255,255,0.03);border-radius:2px;margin:8px 4px 4px;">
+                <div style="height:100%;width:{min(abs(pnl_pct), 100):.0f}%;background:{pnl_color};border-radius:2px;"></div>
             </div>
-            
-            <div style="font-family: JetBrains Mono; color:{pnl_color}; font-size:0.85rem; font-weight:700;">
-                {pnl_sign}${pnl_total:,.0f}</div>
-            <div style="font-family: JetBrains Mono; color:{pnl_color}80; font-size:0.65rem;">{pnl_sign}{pnl_pct:.0f}%</div>
-            <div style="font-family: Rajdhani; color:#2a3a5a; font-size:0.6rem; margin-top:3px;">{s['desc']}</div>
+            <div style="font-family:JetBrains Mono,monospace;color:{pnl_color};font-size:0.85rem;font-weight:700;">
+                {pnl_sign}${pnl_total:,.0f} <span style="font-size:0.65rem;opacity:0.6;">({pnl_sign}{pnl_pct:.0f}%)</span></div>
+            <div style="font-family:Rajdhani,sans-serif;color:#2a3a5a;font-size:0.6rem;margin-top:3px;">{s['desc']}</div>
         </div>"""
     
     html += '</div>'
@@ -866,37 +798,42 @@ def render_scenario_cards(scenarios: list, num_contracts: int = 3):
 
 
 def render_metric_row(metrics: list):
-    """Render a row of metric cards — inline HTML."""
+    """Render a row of metric cards — Streamlit-safe HTML."""
     import streamlit as st
     
     n = len(metrics)
-    html = f'<div style="display:grid; grid-template-columns: repeat({n}, 1fr); gap: 10px;">'
+    html = f'<div style="display:grid;grid-template-columns:repeat({n},1fr);gap:10px;">'
     
-    for i, m in enumerate(metrics):
+    for m in metrics:
         color = m.get('color', '#00d4ff')
         subtitle = m.get('subtitle', '')
         sub_html = f'<div style="font-family:JetBrains Mono,monospace;color:#3a4a6a;font-size:0.7rem;margin-top:4px;">{subtitle}</div>' if subtitle else ''
-        delay = i * 0.08
         
-        html += f"""
-        <div style="background: linear-gradient(145deg, rgba(16,22,40,0.8) 0%, rgba(8,12,24,0.9) 100%);
-                    border: 1px solid rgba(255,255,255,0.04); border-radius: 12px;
-                    padding: 16px 12px; text-align:center; position:relative; overflow:hidden;
-                    animation: fade-in-up 0.4s ease {delay}s both;">
-            <!-- Bottom accent -->
-            <div style="position:absolute;bottom:0;left:20%;right:20%;height:1px;
-                        background:linear-gradient(90deg,transparent,{color}40,transparent);"></div>
-            
-            <div style="font-family: Orbitron, monospace; color:#3a4a6a; font-size:0.55rem;
-                        text-transform:uppercase; letter-spacing:2px; margin-bottom:8px;">
-                {m['label']}</div>
-            <div style="font-family: JetBrains Mono, monospace; color:{color}; font-size:1.5rem; font-weight:700;">
-                {m['value']}</div>
+        html += f"""<div style="background:rgba(16,22,40,0.8);border:1px solid rgba(255,255,255,0.04);
+                    border-radius:12px;padding:16px 12px;text-align:center;border-bottom:2px solid {color}30;">
+            <div style="font-family:Orbitron,monospace;color:#3a4a6a;font-size:0.55rem;
+                        text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;">{m['label']}</div>
+            <div style="font-family:JetBrains Mono,monospace;color:{color};font-size:1.5rem;font-weight:700;">{m['value']}</div>
             {sub_html}
         </div>"""
     
     html += '</div>'
     st.markdown(html, unsafe_allow_html=True)
+
+
+def render_section_banner(icon: str, title: str, subtitle: str = "", color: str = "#00d4ff"):
+    """Render a large visually striking section banner."""
+    import streamlit as st
+    sub_html = f'<div style="font-family:Rajdhani,sans-serif;color:#3a4a6a;font-size:0.85rem;margin-top:2px;">{subtitle}</div>' if subtitle else ''
+    st.markdown(f"""
+    <div style="display:flex;align-items:center;padding:16px 0;margin:12px 0 8px;border-bottom:1px solid {color}15;">
+        <span style="font-size:2.5rem;margin-right:14px;">{icon}</span>
+        <div>
+            <div style="font-family:Orbitron,monospace;font-size:1.15rem;color:{color};font-weight:700;letter-spacing:0.5px;">
+                {title}</div>
+            {sub_html}
+        </div>
+    </div>""", unsafe_allow_html=True)
 
 
 def calculate_nine_am_levels(bounces: list, rejections: list,
@@ -1822,7 +1759,7 @@ def main():
     # SIDEBAR: Input Panel
     # ============================================================
     with st.sidebar:
-        st.markdown("### 📊 Prior NY Session Data")
+        render_section_banner("📊", "Prior NY Session Data", "Feed yesterday's chart data to build today's lines", "#8892b0")
         st.markdown("---")
         
         # Date selection
@@ -2217,7 +2154,7 @@ def main():
     # TAB 1: STRUCTURAL MAP
     # ============================================================
     with tab1:
-        st.markdown("### 9:00 AM CT Decision Levels")
+        render_section_banner("🎯", "9:00 AM CT Decision Levels", "Key structural lines projected to the opening bell", "#ffd740")
         
         # Display the four key levels in a uniform CSS grid
         hw_asc = levels['key_levels']['highest_wick_ascending']
@@ -2555,7 +2492,7 @@ def main():
         # ============================================================
         # 9 AM LINE LADDER (all lines sorted by value)
         # ============================================================
-        st.markdown("### 📊 Line Ladder @ 9:00 AM CT")
+        render_section_banner("📊", "Line Ladder @ 9:00 AM CT", "All projected lines sorted highest to lowest", "#00d4ff")
         st.caption("All projected lines sorted by 9 AM value — highest to lowest")
         
         # Build unified ladder
@@ -2604,7 +2541,7 @@ def main():
     # TAB 2: ASIAN SESSION FUTURES — 6 PM DECISION FRAMEWORK
     # ============================================================
     with tab2:
-        st.markdown("### 🌙 Asian Session — ES Futures (Prop Firm)")
+        render_section_banner("🌙", "Asian Session — ES Futures", "Prop firm evaluation • 6:00 PM CT decision framework", "#b388ff")
         st.markdown("*6:00 PM Decision • 6-7 PM Trading Window • Flat by 7 PM*")
         
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
@@ -2683,7 +2620,7 @@ def main():
         # ============================================================
         # 6 PM PRICE INPUT & TRADE SETUP
         # ============================================================
-        st.markdown("### 🎯 6:00 PM Decision Framework")
+        render_section_banner("🎯", "6:00 PM Decision Framework", "Lock your price and map the trade", "#ffd740")
         
         # Auto-fill from live price if available
         asian_default = 6870.0
@@ -2728,7 +2665,7 @@ def main():
         
         # ── 6 PM Line Ladder with price position ──
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        st.markdown("### 📊 Line Ladder @ 6:00 PM CT")
+        render_section_banner("📊", "Line Ladder @ 6:00 PM CT", "Your position in the structural map", "#00d4ff")
         
         if line_ladder_6pm:
             render_visual_ladder(
@@ -2779,7 +2716,7 @@ def main():
             # ============================================================
             # GENERATE TRADE SETUPS
             # ============================================================
-            st.markdown("### 📋 Trade Setups (6:00 - 7:00 PM CT)")
+            render_section_banner("📋", "Trade Setups", "6:00 - 7:00 PM CT window • ES Futures", "#00e676")
             st.caption("Flat by 7:00 PM before Nikkei opens. Max hold: 1 hour.")
             
             trades = []
@@ -2954,7 +2891,7 @@ def main():
     # TAB 3: NY SESSION OPTIONS — 9 AM DECISION FRAMEWORK
     # ============================================================
     with tab3:
-        st.markdown("### ☀️ NY Session — SPX 0DTE Options")
+        render_section_banner("☀️", "NY Session — SPX 0DTE Options", "9:00 AM structural signal • Same-day expiry", "#ff9100")
         st.markdown("*Tastytrade • 20pt OTM • 3 Contracts • Exit at SPX Level*")
         
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
@@ -2962,7 +2899,7 @@ def main():
         # ============================================================
         # 9 AM PRICE INPUT
         # ============================================================
-        st.markdown("### 🎯 9:00 AM Decision Framework")
+        render_section_banner("🎯", "9:00 AM Decision Framework", "Where is price in the ladder?", "#ffd740")
         
         # Auto-fill from live price if available
         default_price = 6865.0
@@ -3094,7 +3031,7 @@ def main():
         # LINE LADDER WITH PRICE POSITION
         # ============================================================
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        st.markdown("### 📊 9 AM Line Ladder — Price Position")
+        render_section_banner("📊", "9 AM Line Ladder", "Price position relative to structural levels", "#00d4ff")
         
         if ny_ladder:
             render_visual_ladder(
@@ -3113,7 +3050,7 @@ def main():
         # ============================================================
         if trade_direction:
             st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-            st.markdown("### 📋 0DTE Trade Setup")
+            render_section_banner("📋", "0DTE Trade Setup", "Entry • Stop • Targets • Premium estimates", "#00e676")
             
             # Calculate strike: 20 points OTM, rounded to nearest 5
             if trade_direction == "PUT":
@@ -3270,7 +3207,7 @@ def main():
             # ============================================================
             # SCENARIO TABLE
             # ============================================================
-            st.markdown("### 💲 Premium Projections @ 9:05 AM Entry")
+            render_section_banner("💰", "Premium Projections", "9:05 AM entry • Black-Scholes + live calibration", "#ffd740")
             if scenarios['calibrated']:
                 st.caption(f"Calibrated from live pull: ${live_premium:.2f} (Bid ${live_bid:.2f} / Ask ${live_ask:.2f})")
             else:
@@ -3296,7 +3233,7 @@ def main():
             trade_icon = '🔻' if trade_direction == 'PUT' else '🔺'
             trade_class = 'trade-card-bear' if trade_direction == 'PUT' else 'trade-card-bull'
             
-            st.markdown("### 📋 Trade Card")
+            render_section_banner("📋", "Trade Card", "Your complete trade plan at a glance", "#00e676")
             
             # Header
             st.markdown(f"""
@@ -3399,7 +3336,7 @@ def main():
         # CONFLUENCE SCORE
         # ============================================================
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        st.markdown("### 🔗 Confluence Score")
+        render_section_banner("🔗", "Confluence Score", "5-factor alignment check", "#b388ff")
         
         # Auto-detect confluence from candle data
         candles_for_detection = st.session_state.get('last_fetch_candles', None)
@@ -3517,7 +3454,7 @@ def main():
     # TAB 4: TRADE LOG — Daily Journal + Persistent Trade Storage
     # ============================================================
     with tab4:
-        st.markdown("### 📋 Trade Log & Journal")
+        render_section_banner("📋", "Trade Log & Journal", "Daily journal • Trade tracking • Performance analytics", "#00d4ff")
         st.markdown("*Daily journal • Trade tracking • Performance analytics*")
         
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
@@ -3564,7 +3501,7 @@ def main():
                 st.error(f"Could not save journal: {e}")
         
         # ── DAILY JOURNAL SECTION ──
-        st.markdown("### 📝 Daily Journal")
+        render_section_banner("📝", "Daily Journal", "Rich text notes with auto-save", "#ffd740")
         
         journal_data = load_journal()
         journal_date = st.date_input("Journal Date", value=datetime.now().date(), key="journal_date")
@@ -3668,7 +3605,7 @@ def main():
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
         
         # ── TRADE LOG SECTION ──
-        st.markdown("### 💰 Trade Log")
+        render_section_banner("💰", "Trade Log", "Record and track every trade", "#00e676")
         
         def calculate_pnl(session, direction, entry, exit_price, contracts, premium_per_contract=0):
             """Calculate P&L based on session type."""
@@ -3769,7 +3706,7 @@ def main():
         # ── Performance Dashboard ──
         if all_trades:
             st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-            st.markdown("### 📊 Performance Dashboard")
+            render_section_banner("📊", "Performance Dashboard", "Equity curve • Win rate • Statistics", "#00d4ff")
             
             df_trades = pd.DataFrame(all_trades)
             df_trades['pnl'] = pd.to_numeric(df_trades['pnl'], errors='coerce').fillna(0)
@@ -3815,7 +3752,7 @@ def main():
             # ── Equity Curve Chart ──
             if len(df_trades_sorted) >= 2:
                 st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-                st.markdown("### 📈 Equity Curve")
+                render_section_banner("📈", "Equity Curve", "Cumulative P&L over time", "#00d4ff")
                 
                 eq_fig = go.Figure()
                 
