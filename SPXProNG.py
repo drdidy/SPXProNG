@@ -654,776 +654,255 @@ def generate_line_series(anchor_price: float, anchor_time: datetime,
 def render_visual_ladder(lines: list, current_price: float = None, 
                           title: str = "Line Ladder", height: int = 600,
                           show_zones: bool = True, show_distances: bool = True):
-    """
-    Render a beautiful interactive vertical ladder visualization.
+    """Render a polished inline ladder — no iframes, inherits app theme."""
+    import streamlit as st
     
-    lines: list of dicts with keys: value, label, color, direction ('ascending'/'descending'), is_key (bool)
-           Optionally: anchor (float), full_name (str)
-    current_price: float - the live/current price to mark on the ladder
-    """
-    import streamlit.components.v1 as components
-    import json
-    
-    # Sort lines by value descending for display
     sorted_lines = sorted(lines, key=lambda x: x['value'], reverse=True)
-    
-    # Calculate price range
-    all_vals = [l['value'] for l in sorted_lines]
-    if current_price:
-        all_vals.append(current_price)
-    if not all_vals:
+    if not sorted_lines:
         return
     
-    price_min = min(all_vals)
-    price_max = max(all_vals)
-    price_range = price_max - price_min
-    if price_range < 1:
-        price_range = 10
-    padding = price_range * 0.08
-    view_min = price_min - padding
-    view_max = price_max + padding
-    view_range = view_max - view_min
+    html = '<div style="font-family: JetBrains Mono, monospace; font-size: 0.85rem; position:relative; padding: 4px 0;">'
     
-    # Build JSON data for the component
-    lines_json = json.dumps([{
-        'value': l['value'],
-        'label': l.get('label', ''),
-        'full_name': l.get('full_name', l.get('name', '')),
-        'color': l.get('color', '#888'),
-        'direction': l.get('direction', 'ascending'),
-        'is_key': l.get('is_key', False),
-        'anchor': l.get('anchor', l['value']),
-    } for l in sorted_lines])
+    price_inserted = False
     
-    price_json = json.dumps(current_price) if current_price else 'null'
-    
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Orbitron:wght@400;600;700&family=Rajdhani:wght@400;500;600;700&display=swap');
-        
-        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{ 
-            background: transparent; 
-            font-family: 'JetBrains Mono', monospace;
-            overflow: hidden;
-        }}
-        
-        .ladder-container {{
-            position: relative;
-            width: 100%;
-            height: {height}px;
-            display: flex;
-            flex-direction: row;
-        }}
-        
-        /* Left labels area */
-        .ladder-labels {{
-            width: 140px;
-            position: relative;
-            flex-shrink: 0;
-        }}
-        
-        /* Central gauge column */
-        .ladder-gauge {{
-            flex: 1;
-            position: relative;
-            margin: 0 10px;
-        }}
-        
-        /* The vertical track */
-        .gauge-track {{
-            position: absolute;
-            left: 50%;
-            top: 10px;
-            bottom: 10px;
-            width: 4px;
-            transform: translateX(-50%);
-            background: linear-gradient(180deg, 
-                rgba(255,23,68,0.15) 0%, 
-                rgba(255,255,255,0.05) 50%, 
-                rgba(0,230,118,0.15) 100%);
-            border-radius: 2px;
-        }}
-        
-        /* Right values area */
-        .ladder-values {{
-            width: 160px;
-            position: relative;
-            flex-shrink: 0;
-        }}
-        
-        /* Individual line notch */
-        .line-notch {{
-            position: absolute;
-            left: 0;
-            right: 0;
-            height: 2px;
-            transition: all 0.3s ease;
-            cursor: pointer;
-        }}
-        .line-notch:hover {{
-            height: 4px;
-            filter: brightness(1.5);
-        }}
-        .line-notch.key {{
-            height: 3px;
-        }}
-        .line-notch.key:hover {{
-            height: 5px;
-        }}
-        
-        /* Glow effect behind notch */
-        .notch-glow {{
-            position: absolute;
-            left: -20px;
-            right: -20px;
-            top: -6px;
-            bottom: -6px;
-            border-radius: 4px;
-            opacity: 0;
-            transition: opacity 0.3s ease;
-            pointer-events: none;
-        }}
-        .line-notch:hover .notch-glow {{
-            opacity: 1;
-        }}
-        .line-notch.key .notch-glow {{
-            opacity: 0.4;
-        }}
-        
-        /* Zone fills between lines */
-        .zone-fill {{
-            position: absolute;
-            left: 30%;
-            right: 30%;
-            opacity: 0.4;
-            border-radius: 2px;
-            pointer-events: none;
-        }}
-        
-        /* Label on left */
-        .line-label {{
-            position: absolute;
-            right: 8px;
-            transform: translateY(-50%);
-            font-size: 11px;
-            font-weight: 600;
-            white-space: nowrap;
-            opacity: 0.8;
-            transition: all 0.3s ease;
-            font-family: 'Rajdhani', sans-serif;
-        }}
-        .line-label.key {{
-            font-size: 12px;
-            opacity: 1;
-            font-weight: 700;
-        }}
-        
-        /* Value on right */
-        .line-value {{
-            position: absolute;
-            left: 8px;
-            transform: translateY(-50%);
-            font-size: 11px;
-            font-weight: 600;
-            color: #ccd6f6;
-            white-space: nowrap;
-            transition: all 0.3s ease;
-            font-family: 'JetBrains Mono', monospace;
-        }}
-        .line-value.key {{
-            font-size: 13px;
-            font-weight: 700;
-        }}
-        
-        /* Distance badge */
-        .dist-badge {{
-            font-size: 9px;
-            color: #3a4a6a;
-            margin-left: 4px;
-        }}
-        
-        /* Price marker */
-        .price-marker {{
-            position: absolute;
-            left: -30px;
-            right: -30px;
-            height: 3px;
-            z-index: 10;
-            transition: top 0.5s ease;
-        }}
-        .price-line {{
-            position: absolute;
-            left: 0;
-            right: 0;
-            top: 50%;
-            height: 2px;
-            background: #00d4ff;
-            box-shadow: 0 0 12px rgba(0,212,255,0.6), 0 0 24px rgba(0,212,255,0.3);
-        }}
-        .price-glow {{
-            position: absolute;
-            left: 0;
-            right: 0;
-            top: -4px;
-            height: 11px;
-            background: rgba(0,212,255,0.08);
-            border-radius: 4px;
-        }}
-        .price-diamond {{
-            position: absolute;
-            left: 50%;
-            top: 50%;
-            width: 14px;
-            height: 14px;
-            background: #00d4ff;
-            transform: translate(-50%, -50%) rotate(45deg);
-            box-shadow: 0 0 12px rgba(0,212,255,0.8), 0 0 24px rgba(0,212,255,0.4);
-            border-radius: 2px;
-            animation: pulse-diamond 2s ease-in-out infinite;
-        }}
-        @keyframes pulse-diamond {{
-            0%, 100% {{ box-shadow: 0 0 12px rgba(0,212,255,0.8), 0 0 24px rgba(0,212,255,0.4); }}
-            50% {{ box-shadow: 0 0 20px rgba(0,212,255,1), 0 0 40px rgba(0,212,255,0.6); }}
-        }}
-        
-        /* Price label */
-        .price-label-left {{
-            position: absolute;
-            right: 8px;
-            transform: translateY(-50%);
-            font-family: 'Orbitron', monospace;
-            font-size: 11px;
-            font-weight: 700;
-            color: #00d4ff;
-            text-shadow: 0 0 8px rgba(0,212,255,0.5);
-            white-space: nowrap;
-        }}
-        .price-label-right {{
-            position: absolute;
-            left: 8px;
-            transform: translateY(-50%);
-            font-family: 'Orbitron', monospace;
-            font-size: 13px;
-            font-weight: 700;
-            color: #00d4ff;
-            text-shadow: 0 0 8px rgba(0,212,255,0.5);
-            white-space: nowrap;
-        }}
-        
-        /* Distance connector */
-        .distance-connector {{
-            position: absolute;
-            left: 50%;
-            width: 1px;
-            border-left: 1px dashed rgba(0,212,255,0.2);
-            z-index: 5;
-            pointer-events: none;
-        }}
-        .distance-label {{
-            position: absolute;
-            left: calc(50% + 8px);
-            font-size: 10px;
-            font-family: 'JetBrains Mono', monospace;
-            color: rgba(0,212,255,0.4);
-            white-space: nowrap;
-            pointer-events: none;
-        }}
-        
-        /* Tooltip */
-        .tooltip {{
-            position: absolute;
-            left: calc(50% + 20px);
-            transform: translateY(-50%);
-            background: rgba(6,9,16,0.95);
-            border: 1px solid rgba(0,212,255,0.3);
-            border-radius: 8px;
-            padding: 8px 12px;
-            font-size: 11px;
-            color: #ccd6f6;
-            white-space: nowrap;
-            z-index: 100;
-            pointer-events: none;
-            opacity: 0;
-            transition: opacity 0.2s ease;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-        }}
-        
-        /* Entry animation */
-        .animate-in {{
-            animation: slide-in 0.4s ease-out both;
-        }}
-        @keyframes slide-in {{
-            from {{ opacity: 0; transform: translateX(-10px); }}
-            to {{ opacity: 1; transform: translateX(0); }}
-        }}
-    </style>
-    </head>
-    <body>
-    <div class="ladder-container" id="ladder"></div>
-    
-    <script>
-    const lines = {lines_json};
-    const currentPrice = {price_json};
-    const viewMin = {view_min};
-    const viewMax = {view_max};
-    const viewRange = {view_range};
-    const showZones = {'true' if show_zones else 'false'};
-    const showDistances = {'true' if show_distances else 'false'};
-    const height = {height};
-    const padding = 15;
-    
-    function priceToY(price) {{
-        return padding + (1 - (price - viewMin) / viewRange) * (height - 2 * padding);
-    }}
-    
-    const container = document.getElementById('ladder');
-    
-    // Create three columns
-    const labelsDiv = document.createElement('div');
-    labelsDiv.className = 'ladder-labels';
-    const gaugeDiv = document.createElement('div');
-    gaugeDiv.className = 'ladder-gauge';
-    const valuesDiv = document.createElement('div');
-    valuesDiv.className = 'ladder-values';
-    
-    // Gauge track
-    const track = document.createElement('div');
-    track.className = 'gauge-track';
-    gaugeDiv.appendChild(track);
-    
-    // Zone fills between adjacent lines
-    if (showZones) {{
-        for (let i = 0; i < lines.length - 1; i++) {{
-            const upper = lines[i];
-            const lower = lines[i + 1];
-            const y1 = priceToY(upper.value);
-            const y2 = priceToY(lower.value);
+    for i, line in enumerate(sorted_lines):
+        # Insert price marker when we pass it
+        if current_price and not price_inserted and line['value'] < current_price:
+            # Distance to nearest above and below
+            above_lines = [l for l in sorted_lines if l['value'] > current_price]
+            below_lines = [l for l in sorted_lines if l['value'] <= current_price]
+            dist_up = f"{(above_lines[-1]['value'] - current_price):.1f}pt ↑" if above_lines else ""
+            dist_dn = f"{(current_price - below_lines[0]['value']):.1f}pt ↓" if below_lines else ""
             
-            const zone = document.createElement('div');
-            zone.className = 'zone-fill';
-            zone.style.top = y1 + 'px';
-            zone.style.height = (y2 - y1) + 'px';
-            
-            if (upper.direction === 'ascending' && lower.direction === 'descending') {{
-                zone.style.background = 'rgba(255,215,64,0.06)';
-            }} else if (upper.direction === 'descending') {{
-                zone.style.background = 'rgba(0,230,118,0.03)';
-            }} else {{
-                zone.style.background = 'rgba(255,23,68,0.03)';
-            }}
-            gaugeDiv.appendChild(zone);
-        }}
-    }}
+            html += f"""
+            <div style="display:flex; align-items:center; padding: 10px 16px; margin: 6px 0;
+                        background: linear-gradient(90deg, rgba(0,212,255,0.06) 0%, rgba(0,212,255,0.02) 100%);
+                        border: 1px solid rgba(0,212,255,0.25); border-radius: 10px;
+                        box-shadow: 0 0 20px rgba(0,212,255,0.05); position:relative;
+                        animation: fade-in-up 0.4s ease {i*0.04}s both;">
+                <div style="width:10px; height:10px; background:#00d4ff; transform:rotate(45deg); 
+                            box-shadow: 0 0 8px rgba(0,212,255,0.8); margin-right:12px; flex-shrink:0;"></div>
+                <span style="font-family: Orbitron, monospace; color: #00d4ff; font-size: 0.85rem; font-weight:700; flex:1;
+                            text-shadow: 0 0 10px rgba(0,212,255,0.3);">
+                    ◉ PRICE
+                </span>
+                <span style="font-family: JetBrains Mono, monospace; color: #00d4ff; font-size: 1.05rem; font-weight:700;
+                            text-shadow: 0 0 10px rgba(0,212,255,0.3);">
+                    {current_price:.2f}
+                </span>
+                <span style="color: rgba(0,212,255,0.35); font-size: 0.7rem; margin-left:12px; min-width:60px; text-align:right;">
+                    {dist_up}
+                </span>
+            </div>"""
+            price_inserted = True
+        
+        # Line row
+        is_key = line.get('is_key', False)
+        direction = line.get('direction', 'ascending')
+        color = line.get('color', '#888')
+        label = line.get('label', '')
+        full_name = line.get('full_name', '')
+        value = line['value']
+        
+        # Styling based on key vs secondary
+        if is_key:
+            bg = f"linear-gradient(90deg, {color}12 0%, {color}04 100%)"
+            border_w = "3px"
+            font_size = "0.9rem"
+            font_weight = "700"
+            val_size = "1rem"
+            opacity = "1"
+            pad = "10px 16px"
+            icon = "◆ " if 'W' in label else "◇ "
+        else:
+            bg = f"linear-gradient(90deg, {color}08 0%, transparent 100%)"
+            border_w = "2px"
+            font_size = "0.8rem"
+            font_weight = "500"
+            val_size = "0.9rem"
+            opacity = "0.7"
+            pad = "7px 16px"
+            icon = ""
+        
+        # Distance from price
+        dist_html = ""
+        if current_price:
+            dist = value - current_price
+            dist_color = "rgba(255,255,255,0.15)"
+            dist_html = f'<span style="color:{dist_color}; font-size:0.7rem; min-width:70px; text-align:right;">{dist:+.1f}pt</span>'
+        
+        # Hit indicator (for lines that have been touched)
+        touched = line.get('touched', None)
+        hit_html = ""
+        if touched is True:
+            hit_html = '<span style="color:#00e676; font-size:0.8rem; min-width:50px; text-align:right;">✅ HIT</span>'
+        elif touched is False:
+            hit_html = '<span style="color:#3a4a6a; font-size:0.8rem; min-width:50px; text-align:right;">· · ·</span>'
+        
+        delay = i * 0.03
+        
+        html += f"""
+        <div style="display:flex; align-items:center; justify-content:space-between; 
+                    padding: {pad}; margin: 2px 0;
+                    background: {bg}; border-left: {border_w} solid {color};
+                    border-radius: 0 8px 8px 0; opacity:{opacity};
+                    transition: all 0.2s ease;
+                    animation: fade-in-up 0.3s ease {delay}s both;"
+             onmouseover="this.style.opacity='1';this.style.background='linear-gradient(90deg,{color}18,{color}08)'"
+             onmouseout="this.style.opacity='{opacity}';this.style.background='{bg}'">
+            <span style="color: {color}; font-size:{font_size}; font-weight:{font_weight}; min-width:160px;">
+                {icon}{label} <span style="color:{color}88; font-size:0.7rem;">{full_name[:20]}</span>
+            </span>
+            <span style="color: #ccd6f6; font-weight: 700; font-size:{val_size}; min-width:80px; text-align:right;">
+                {value:.2f}
+            </span>
+            {dist_html}
+            {hit_html}
+        </div>"""
     
-    // Render each line
-    lines.forEach((line, i) => {{
-        const y = priceToY(line.value);
-        const delay = i * 40;
-        
-        // Notch on gauge
-        const notch = document.createElement('div');
-        notch.className = 'line-notch' + (line.is_key ? ' key' : '');
-        notch.style.top = (y - 1) + 'px';
-        notch.style.background = line.color;
-        notch.style.animationDelay = delay + 'ms';
-        
-        // Glow
-        const glow = document.createElement('div');
-        glow.className = 'notch-glow';
-        glow.style.background = line.color.replace(')', ',0.15)').replace('rgb', 'rgba');
-        notch.appendChild(glow);
-        
-        gaugeDiv.appendChild(notch);
-        
-        // Left label
-        const label = document.createElement('div');
-        label.className = 'line-label animate-in' + (line.is_key ? ' key' : '');
-        label.style.top = y + 'px';
-        label.style.color = line.color;
-        label.style.animationDelay = delay + 'ms';
-        const icon = line.direction === 'ascending' ? '↗' : '↘';
-        label.textContent = line.label + ' ' + icon;
-        labelsDiv.appendChild(label);
-        
-        // Right value
-        const val = document.createElement('div');
-        val.className = 'line-value animate-in' + (line.is_key ? ' key' : '');
-        val.style.top = y + 'px';
-        val.style.animationDelay = delay + 'ms';
-        
-        let distHtml = '';
-        if (currentPrice && showDistances) {{
-            const dist = line.value - currentPrice;
-            const distColor = dist > 0 ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.25)';
-            distHtml = '<span class="dist-badge">' + (dist > 0 ? '+' : '') + dist.toFixed(1) + '</span>';
-        }}
-        val.innerHTML = line.value.toFixed(2) + distHtml;
-        valuesDiv.appendChild(val);
-        
-        // Hover tooltip
-        notch.addEventListener('mouseenter', (e) => {{
-            notch.querySelector('.notch-glow').style.opacity = '1';
-        }});
-        notch.addEventListener('mouseleave', (e) => {{
-            if (!line.is_key) notch.querySelector('.notch-glow').style.opacity = '0';
-        }});
-    }});
+    # If price below all lines
+    if current_price and not price_inserted:
+        html += f"""
+        <div style="display:flex; align-items:center; padding: 10px 16px; margin: 6px 0;
+                    background: linear-gradient(90deg, rgba(0,212,255,0.06) 0%, rgba(0,212,255,0.02) 100%);
+                    border: 1px solid rgba(0,212,255,0.25); border-radius: 10px;
+                    box-shadow: 0 0 20px rgba(0,212,255,0.05);">
+            <div style="width:10px; height:10px; background:#00d4ff; transform:rotate(45deg); 
+                        box-shadow: 0 0 8px rgba(0,212,255,0.8); margin-right:12px;"></div>
+            <span style="font-family: Orbitron, monospace; color: #00d4ff; font-size: 0.85rem; font-weight:700; flex:1;">
+                ◉ PRICE
+            </span>
+            <span style="font-family: JetBrains Mono; color: #00d4ff; font-size: 1.05rem; font-weight:700;">
+                {current_price:.2f}
+            </span>
+        </div>"""
     
-    // Price marker
-    if (currentPrice) {{
-        const priceY = priceToY(currentPrice);
-        
-        // Marker on gauge
-        const marker = document.createElement('div');
-        marker.className = 'price-marker';
-        marker.style.top = (priceY - 1.5) + 'px';
-        
-        const glow = document.createElement('div');
-        glow.className = 'price-glow';
-        marker.appendChild(glow);
-        
-        const priceLine = document.createElement('div');
-        priceLine.className = 'price-line';
-        marker.appendChild(priceLine);
-        
-        const diamond = document.createElement('div');
-        diamond.className = 'price-diamond';
-        marker.appendChild(diamond);
-        
-        gaugeDiv.appendChild(marker);
-        
-        // Price label left
-        const priceLeft = document.createElement('div');
-        priceLeft.className = 'price-label-left';
-        priceLeft.style.top = priceY + 'px';
-        priceLeft.textContent = '◉ PRICE';
-        labelsDiv.appendChild(priceLeft);
-        
-        // Price label right  
-        const priceRight = document.createElement('div');
-        priceRight.className = 'price-label-right';
-        priceRight.style.top = priceY + 'px';
-        priceRight.textContent = currentPrice.toFixed(2);
-        valuesDiv.appendChild(priceRight);
-        
-        // Distance connectors to nearest lines
-        if (showDistances) {{
-            const above = lines.filter(l => l.value > currentPrice);
-            const below = lines.filter(l => l.value <= currentPrice);
-            
-            if (above.length > 0) {{
-                const nearest = above[above.length - 1];
-                const ny = priceToY(nearest.value);
-                const connector = document.createElement('div');
-                connector.className = 'distance-connector';
-                connector.style.top = ny + 'px';
-                connector.style.height = (priceY - ny) + 'px';
-                gaugeDiv.appendChild(connector);
-                
-                const dLabel = document.createElement('div');
-                dLabel.className = 'distance-label';
-                dLabel.style.top = ((ny + priceY) / 2) + 'px';
-                dLabel.textContent = (nearest.value - currentPrice).toFixed(1) + 'pt ↑';
-                gaugeDiv.appendChild(dLabel);
-            }}
-            
-            if (below.length > 0) {{
-                const nearest = below[0];
-                const ny = priceToY(nearest.value);
-                const connector = document.createElement('div');
-                connector.className = 'distance-connector';
-                connector.style.top = priceY + 'px';
-                connector.style.height = (ny - priceY) + 'px';
-                gaugeDiv.appendChild(connector);
-                
-                const dLabel = document.createElement('div');
-                dLabel.className = 'distance-label';
-                dLabel.style.top = ((ny + priceY) / 2) + 'px';
-                dLabel.textContent = (currentPrice - nearest.value).toFixed(1) + 'pt ↓';
-                gaugeDiv.appendChild(dLabel);
-            }}
-        }}
-    }}
-    
-    container.appendChild(labelsDiv);
-    container.appendChild(gaugeDiv);
-    container.appendChild(valuesDiv);
-    </script>
-    </body>
-    </html>
-    """
-    
-    components.html(html, height=height + 10, scrolling=False)
+    html += '</div>'
+    st.markdown(html, unsafe_allow_html=True)
 
 
 def render_signal_display(signal_text: str, signal_detail: str, signal_class: str):
-    """
-    Render an animated signal display — radar-style with pulsing ring.
-    signal_class: 'bull', 'bear', or 'neutral'
-    """
-    import streamlit.components.v1 as components
+    """Render polished signal display — inline HTML, no iframe."""
+    import streamlit as st
     
     color = '#00e676' if signal_class == 'bull' else '#ff1744' if signal_class == 'bear' else '#ffd740'
-    bg_color = 'rgba(0,230,118,0.06)' if signal_class == 'bull' else 'rgba(255,23,68,0.06)' if signal_class == 'bear' else 'rgba(255,215,64,0.06)'
-    ring_anim = 'pulse-ring-bull' if signal_class == 'bull' else 'pulse-ring-bear' if signal_class == 'bear' else 'pulse-ring-neutral'
+    bg = f'rgba(0,230,118,0.04)' if signal_class == 'bull' else 'rgba(255,23,68,0.04)' if signal_class == 'bear' else 'rgba(255,215,64,0.04)'
     icon = '🔺' if signal_class == 'bull' else '🔻' if signal_class == 'bear' else '⏸'
     
-    html = f"""
-    <div style="font-family:'JetBrains Mono',monospace; text-align:center; padding:24px 16px; 
-                background:{bg_color}; border:1px solid {color}30; border-radius:16px; position:relative; overflow:hidden;">
-      
-      <!-- Animated corner accents -->
-      <div style="position:absolute;top:0;left:0;width:40px;height:2px;background:linear-gradient(90deg,{color},{color}00);"></div>
-      <div style="position:absolute;top:0;left:0;width:2px;height:40px;background:linear-gradient(180deg,{color},{color}00);"></div>
-      <div style="position:absolute;top:0;right:0;width:40px;height:2px;background:linear-gradient(-90deg,{color},{color}00);"></div>
-      <div style="position:absolute;top:0;right:0;width:2px;height:40px;background:linear-gradient(180deg,{color},{color}00);"></div>
-      <div style="position:absolute;bottom:0;left:0;width:40px;height:2px;background:linear-gradient(90deg,{color},{color}00);"></div>
-      <div style="position:absolute;bottom:0;left:0;width:2px;height:40px;background:linear-gradient(0deg,{color},{color}00);"></div>
-      <div style="position:absolute;bottom:0;right:0;width:40px;height:2px;background:linear-gradient(-90deg,{color},{color}00);"></div>
-      <div style="position:absolute;bottom:0;right:0;width:2px;height:40px;background:linear-gradient(0deg,{color},{color}00);"></div>
-      
-      <!-- Pulsing radar ring -->
-      <svg width="80" height="80" viewBox="0 0 80 80" style="margin-bottom:12px;">
-        <circle cx="40" cy="40" r="35" fill="none" stroke="{color}15" stroke-width="2"/>
-        <circle cx="40" cy="40" r="35" fill="none" stroke="{color}" stroke-width="2" 
-                stroke-dasharray="220" stroke-dashoffset="220" stroke-linecap="round"
-                transform="rotate(-90 40 40)">
-          <animate attributeName="stroke-dashoffset" from="220" to="0" dur="1.2s" fill="freeze" 
-                   calcMode="spline" keySplines="0.4 0 0.2 1"/>
-        </circle>
-        <circle cx="40" cy="40" r="25" fill="none" stroke="{color}10" stroke-width="1"/>
-        <circle cx="40" cy="40" r="15" fill="{color}15" stroke="{color}40" stroke-width="1">
-          <animate attributeName="r" values="15;17;15" dur="2s" repeatCount="indefinite"/>
-        </circle>
-        <text x="40" y="45" text-anchor="middle" font-size="20">{icon}</text>
-      </svg>
-      
-      <!-- Signal text -->
-      <div style="font-family:'Orbitron',monospace; font-size:1.4rem; color:{color}; font-weight:700;
-                  text-shadow:0 0 20px {color}40; letter-spacing:1px;">
-        {signal_text}
-      </div>
-      
-      <!-- Detail -->
-      <div style="font-family:'Rajdhani',sans-serif; font-size:0.9rem; color:#8892b0; margin-top:10px; 
-                  line-height:1.4; max-width:400px; margin-left:auto; margin-right:auto;">
-        {signal_detail}
-      </div>
+    st.markdown(f"""
+    <div style="text-align:center; padding: 24px 20px; margin: 8px 0;
+                background: {bg}; border: 1px solid {color}30; border-radius: 16px;
+                position:relative; overflow:hidden;
+                animation: fade-in-up 0.5s ease;">
+        
+        <!-- Corner accents -->
+        <div style="position:absolute;top:0;left:0;width:40px;height:2px;background:linear-gradient(90deg,{color},{color}00);"></div>
+        <div style="position:absolute;top:0;left:0;width:2px;height:40px;background:linear-gradient(180deg,{color},{color}00);"></div>
+        <div style="position:absolute;top:0;right:0;width:40px;height:2px;background:linear-gradient(-90deg,{color},{color}00);"></div>
+        <div style="position:absolute;top:0;right:0;width:2px;height:40px;background:linear-gradient(180deg,{color},{color}00);"></div>
+        <div style="position:absolute;bottom:0;left:0;width:40px;height:2px;background:linear-gradient(90deg,{color},{color}00);"></div>
+        <div style="position:absolute;bottom:0;left:0;width:2px;height:40px;background:linear-gradient(0deg,{color},{color}00);"></div>
+        <div style="position:absolute;bottom:0;right:0;width:40px;height:2px;background:linear-gradient(-90deg,{color},{color}00);"></div>
+        <div style="position:absolute;bottom:0;right:0;width:2px;height:40px;background:linear-gradient(0deg,{color},{color}00);"></div>
+        
+        <div style="font-size: 2rem; margin-bottom: 8px;">{icon}</div>
+        
+        <div style="font-family: 'Orbitron', monospace; font-size: 1.4rem; color: {color}; font-weight: 700;
+                    letter-spacing: 1px;">
+            {signal_text}
+        </div>
+        
+        <div style="font-family: 'Rajdhani', sans-serif; font-size: 0.95rem; color: #8892b0; margin-top: 10px;
+                    line-height: 1.4;">
+            {signal_detail}
+        </div>
     </div>
-    """
-    components.html(html, height=260, scrolling=False)
+    """, unsafe_allow_html=True)
 
 
 def render_scenario_cards(scenarios: list, num_contracts: int = 3):
-    """
-    Render premium scenario cards as an interactive visual grid.
-    scenarios: list of dicts with keys: label, spx_label, premium, color, spx_short, desc, entry_premium
-    """
-    import streamlit.components.v1 as components
-    import json
+    """Render premium scenario cards — inline HTML grid."""
+    import streamlit as st
     
-    cards_html = ""
-    for s in scenarios:
+    html = '<div style="display:grid; grid-template-columns: repeat(4, 1fr); gap: 10px;">'
+    
+    for i, s in enumerate(scenarios):
         pnl_per_contract = (s['premium'] - s['entry_premium']) * 100
         pnl_total = pnl_per_contract * num_contracts
         pnl_color = '#00e676' if pnl_total >= 0 else '#ff1744'
         pnl_sign = '+' if pnl_total >= 0 else ''
         pnl_pct = ((s['premium'] - s['entry_premium']) / s['entry_premium'] * 100) if s['entry_premium'] > 0 else 0
-        bar_width = min(abs(pnl_pct), 100)
+        color = s['color']
+        delay = i * 0.08
         
-        cards_html += f"""
-        <div class="sc-card" style="--card-color:{s['color']};">
-          <div class="sc-label">{s['label']}</div>
-          <div class="sc-spx">{s['spx_label']}</div>
-          <div class="sc-premium">${s['premium']:.2f}</div>
-          <div class="sc-per-contract">${s['premium']*100:.0f}/contract</div>
-          <div class="sc-pnl-bar-track">
-            <div class="sc-pnl-bar" style="width:{bar_width}%;background:{pnl_color};"></div>
-          </div>
-          <div class="sc-pnl" style="color:{pnl_color};">{pnl_sign}${pnl_total:,.0f}</div>
-          <div class="sc-pnl-pct" style="color:{pnl_color};">{pnl_sign}{pnl_pct:.0f}%</div>
-          <div class="sc-desc">{s['desc']}</div>
-        </div>
-        """
+        html += f"""
+        <div style="background: linear-gradient(145deg, #131a2e 0%, #0a0f1a 100%);
+                    border: 1px solid {color}25; border-radius: 12px; padding: 14px 10px; text-align:center;
+                    position:relative; overflow:hidden;
+                    animation: fade-in-up 0.4s ease {delay}s both;
+                    transition: all 0.25s ease;"
+             onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 8px 20px rgba(0,0,0,0.3)';this.style.borderColor='{color}50'"
+             onmouseout="this.style.transform='none';this.style.boxShadow='none';this.style.borderColor='{color}25'">
+            
+            <!-- Top accent line -->
+            <div style="position:absolute;top:0;left:0;right:0;height:2px;
+                        background:linear-gradient(90deg,transparent,{color}60,transparent);"></div>
+            
+            <div style="font-family: Rajdhani, sans-serif; color:{color}; font-size:0.7rem; 
+                        text-transform:uppercase; letter-spacing:1.5px; font-weight:600;">{s['label']}</div>
+            <div style="font-family: JetBrains Mono; color:#3a4a6a; font-size:0.65rem; margin:2px 0;">{s['spx_label']}</div>
+            <div style="font-family: JetBrains Mono; color:{color}; font-size:1.4rem; font-weight:700; margin:4px 0;">
+                ${s['premium']:.2f}</div>
+            <div style="font-family: JetBrains Mono; color:#3a4a6a; font-size:0.65rem;">${s['premium']*100:.0f}/contract</div>
+            
+            <!-- P&L bar -->
+            <div style="height:3px; background:rgba(255,255,255,0.03); border-radius:2px; margin:8px 4px 4px; overflow:hidden;">
+                <div style="height:100%; width:{min(abs(pnl_pct), 100):.0f}%; background:{pnl_color}; border-radius:2px;
+                            transition: width 1s ease;"></div>
+            </div>
+            
+            <div style="font-family: JetBrains Mono; color:{pnl_color}; font-size:0.85rem; font-weight:700;">
+                {pnl_sign}${pnl_total:,.0f}</div>
+            <div style="font-family: JetBrains Mono; color:{pnl_color}80; font-size:0.65rem;">{pnl_sign}{pnl_pct:.0f}%</div>
+            <div style="font-family: Rajdhani; color:#2a3a5a; font-size:0.6rem; margin-top:3px;">{s['desc']}</div>
+        </div>"""
     
-    html = f"""
-    <style>
-      @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Orbitron:wght@400;600;700&family=Rajdhani:wght@400;500;600;700&display=swap');
-      * {{ margin:0; padding:0; box-sizing:border-box; }}
-      body {{ background:transparent; }}
-      
-      .sc-grid {{
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 10px;
-      }}
-      .sc-card {{
-        background: linear-gradient(145deg, #131a2e 0%, #0a0f1a 100%);
-        border: 1px solid color-mix(in srgb, var(--card-color) 20%, transparent);
-        border-radius: 12px;
-        padding: 14px 12px;
-        text-align: center;
-        transition: all 0.3s ease;
-        position: relative;
-        overflow: hidden;
-      }}
-      .sc-card::before {{
-        content: '';
-        position: absolute;
-        top: 0; left: 0; right: 0;
-        height: 2px;
-        background: linear-gradient(90deg, transparent, var(--card-color), transparent);
-        opacity: 0.5;
-      }}
-      .sc-card:hover {{
-        transform: translateY(-2px);
-        border-color: color-mix(in srgb, var(--card-color) 40%, transparent);
-        box-shadow: 0 8px 24px rgba(0,0,0,0.3), 0 0 15px color-mix(in srgb, var(--card-color) 10%, transparent);
-      }}
-      .sc-label {{
-        font-family: 'Rajdhani', sans-serif;
-        color: var(--card-color);
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 1.5px;
-        font-weight: 600;
-      }}
-      .sc-spx {{
-        font-family: 'JetBrains Mono', monospace;
-        color: #3a4a6a;
-        font-size: 10px;
-        margin: 3px 0;
-      }}
-      .sc-premium {{
-        font-family: 'JetBrains Mono', monospace;
-        color: var(--card-color);
-        font-size: 1.5rem;
-        font-weight: 700;
-        margin: 4px 0;
-        text-shadow: 0 0 12px color-mix(in srgb, var(--card-color) 30%, transparent);
-      }}
-      .sc-per-contract {{
-        font-family: 'JetBrains Mono', monospace;
-        color: #3a4a6a;
-        font-size: 10px;
-      }}
-      .sc-pnl-bar-track {{
-        height: 3px;
-        background: rgba(255,255,255,0.03);
-        border-radius: 2px;
-        margin: 8px 0 4px;
-        overflow: hidden;
-      }}
-      .sc-pnl-bar {{
-        height: 100%;
-        border-radius: 2px;
-        transition: width 1s ease;
-      }}
-      .sc-pnl {{
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 14px;
-        font-weight: 700;
-      }}
-      .sc-pnl-pct {{
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 10px;
-        opacity: 0.6;
-      }}
-      .sc-desc {{
-        font-family: 'Rajdhani', sans-serif;
-        color: #2a3a5a;
-        font-size: 10px;
-        margin-top: 4px;
-      }}
-    </style>
-    <div class="sc-grid">{cards_html}</div>
-    """
-    components.html(html, height=220, scrolling=False)
+    html += '</div>'
+    st.markdown(html, unsafe_allow_html=True)
 
 
 def render_metric_row(metrics: list):
-    """
-    Render a row of metric cards with animated counters.
-    metrics: list of dicts with keys: label, value, subtitle (optional), color (optional)
-    """
-    import streamlit.components.v1 as components
+    """Render a row of metric cards — inline HTML."""
+    import streamlit as st
     
     n = len(metrics)
-    cards_html = ""
+    html = f'<div style="display:grid; grid-template-columns: repeat({n}, 1fr); gap: 10px;">'
+    
     for i, m in enumerate(metrics):
         color = m.get('color', '#00d4ff')
         subtitle = m.get('subtitle', '')
-        sub_html = f'<div class="mr-sub">{subtitle}</div>' if subtitle else ''
+        sub_html = f'<div style="font-family:JetBrains Mono,monospace;color:#3a4a6a;font-size:0.7rem;margin-top:4px;">{subtitle}</div>' if subtitle else ''
+        delay = i * 0.08
         
-        cards_html += f"""
-        <div class="mr-card" style="--mc-color:{color}; animation-delay:{i*80}ms;">
-          <div class="mr-label">{m['label']}</div>
-          <div class="mr-value" style="color:{color};">{m['value']}</div>
-          {sub_html}
-        </div>
-        """
+        html += f"""
+        <div style="background: linear-gradient(145deg, rgba(16,22,40,0.8) 0%, rgba(8,12,24,0.9) 100%);
+                    border: 1px solid rgba(255,255,255,0.04); border-radius: 12px;
+                    padding: 16px 12px; text-align:center; position:relative; overflow:hidden;
+                    animation: fade-in-up 0.4s ease {delay}s both;">
+            <!-- Bottom accent -->
+            <div style="position:absolute;bottom:0;left:20%;right:20%;height:1px;
+                        background:linear-gradient(90deg,transparent,{color}40,transparent);"></div>
+            
+            <div style="font-family: Orbitron, monospace; color:#3a4a6a; font-size:0.55rem;
+                        text-transform:uppercase; letter-spacing:2px; margin-bottom:8px;">
+                {m['label']}</div>
+            <div style="font-family: JetBrains Mono, monospace; color:{color}; font-size:1.5rem; font-weight:700;">
+                {m['value']}</div>
+            {sub_html}
+        </div>"""
     
-    html = f"""
-    <style>
-      @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Orbitron:wght@400;600;700&family=Rajdhani:wght@400;500;600;700&display=swap');
-      * {{ margin:0; padding:0; box-sizing:border-box; }}
-      body {{ background:transparent; }}
-      
-      .mr-grid {{
-        display: grid;
-        grid-template-columns: repeat({n}, 1fr);
-        gap: 10px;
-      }}
-      .mr-card {{
-        background: linear-gradient(145deg, rgba(16,22,40,0.8) 0%, rgba(8,12,24,0.9) 100%);
-        border: 1px solid rgba(255,255,255,0.04);
-        border-radius: 12px;
-        padding: 16px 12px;
-        text-align: center;
-        position: relative;
-        overflow: hidden;
-        animation: mr-fade-in 0.5s ease both;
-      }}
-      .mr-card::after {{
-        content: '';
-        position: absolute;
-        bottom: 0; left: 20%; right: 20%;
-        height: 1px;
-        background: linear-gradient(90deg, transparent, var(--mc-color), transparent);
-        opacity: 0.3;
-      }}
-      @keyframes mr-fade-in {{
-        from {{ opacity:0; transform:translateY(8px); }}
-        to {{ opacity:1; transform:translateY(0); }}
-      }}
-      .mr-label {{
-        font-family: 'Orbitron', monospace;
-        color: #3a4a6a;
-        font-size: 9px;
-        text-transform: uppercase;
-        letter-spacing: 2px;
-        margin-bottom: 8px;
-      }}
-      .mr-value {{
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 1.6rem;
-        font-weight: 700;
-        text-shadow: 0 0 12px color-mix(in srgb, var(--mc-color) 25%, transparent);
-      }}
-      .mr-sub {{
-        font-family: 'JetBrains Mono', monospace;
-        color: #3a4a6a;
-        font-size: 10px;
-        margin-top: 4px;
-      }}
-    </style>
-    <div class="mr-grid">{cards_html}</div>
-    """
-    components.html(html, height=110, scrolling=False)
+    html += '</div>'
+    st.markdown(html, unsafe_allow_html=True)
 
 
 def calculate_nine_am_levels(bounces: list, rejections: list,
@@ -3208,28 +2687,6 @@ def main():
         line_ladder_6pm.sort(key=lambda x: x['value_6pm'], reverse=True)
         
         # ============================================================
-        # 6 PM LINE LADDER DISPLAY
-        # ============================================================
-        st.markdown("### 📊 Line Ladder @ 6:00 PM CT")
-        st.caption("All projected lines sorted by 6 PM value — highest to lowest")
-        
-        if line_ladder_6pm:
-            # Pass the 6PM locked price if available
-            ladder_price_6pm = asian_price if asian_price else None
-            render_visual_ladder(
-                lines=[{
-                    'value': l['value_6pm'], 'label': l['short'], 'full_name': l['name'],
-                    'color': l['color'], 'direction': l['direction'], 
-                    'is_key': 'HW' in l['short'] or 'LW' in l['short'] or 'HB' in l['short'] or 'LR' in l['short'],
-                } for l in line_ladder_6pm],
-                current_price=ladder_price_6pm,
-                title="6 PM Line Ladder",
-                height=max(400, len(line_ladder_6pm) * 45),
-            )
-        
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        
-        # ============================================================
         # 6 PM PRICE INPUT & TRADE SETUP
         # ============================================================
         st.markdown("### 🎯 6:00 PM Decision Framework")
@@ -3274,6 +2731,24 @@ def main():
         max_move = st.number_input("Max expected move (pts)", value=5.0, step=0.5, format="%.1f",
                                     key="asian_max_move",
                                     help="Maximum points expected in the 6-7 PM window")
+        
+        # ── 6 PM Line Ladder with price position ──
+        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+        st.markdown("### 📊 Line Ladder @ 6:00 PM CT")
+        
+        if line_ladder_6pm:
+            render_visual_ladder(
+                lines=[{
+                    'value': l['value_6pm'], 'label': l['short'], 'full_name': l['name'],
+                    'color': l['color'], 'direction': l['direction'], 
+                    'is_key': 'HW' in l['short'] or 'LW' in l['short'] or 'HB' in l['short'] or 'LR' in l['short'],
+                } for l in line_ladder_6pm],
+                current_price=asian_price,
+                title="6 PM Line Ladder",
+                height=max(400, len(line_ladder_6pm) * 45),
+            )
+        
+        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
         
         if line_ladder_6pm:
             # Find lines immediately above and below price
