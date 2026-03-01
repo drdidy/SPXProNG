@@ -651,6 +651,781 @@ def generate_line_series(anchor_price: float, anchor_time: datetime,
     return points
 
 
+def render_visual_ladder(lines: list, current_price: float = None, 
+                          title: str = "Line Ladder", height: int = 600,
+                          show_zones: bool = True, show_distances: bool = True):
+    """
+    Render a beautiful interactive vertical ladder visualization.
+    
+    lines: list of dicts with keys: value, label, color, direction ('ascending'/'descending'), is_key (bool)
+           Optionally: anchor (float), full_name (str)
+    current_price: float - the live/current price to mark on the ladder
+    """
+    import streamlit.components.v1 as components
+    import json
+    
+    # Sort lines by value descending for display
+    sorted_lines = sorted(lines, key=lambda x: x['value'], reverse=True)
+    
+    # Calculate price range
+    all_vals = [l['value'] for l in sorted_lines]
+    if current_price:
+        all_vals.append(current_price)
+    if not all_vals:
+        return
+    
+    price_min = min(all_vals)
+    price_max = max(all_vals)
+    price_range = price_max - price_min
+    if price_range < 1:
+        price_range = 10
+    padding = price_range * 0.08
+    view_min = price_min - padding
+    view_max = price_max + padding
+    view_range = view_max - view_min
+    
+    # Build JSON data for the component
+    lines_json = json.dumps([{
+        'value': l['value'],
+        'label': l.get('label', ''),
+        'full_name': l.get('full_name', l.get('name', '')),
+        'color': l.get('color', '#888'),
+        'direction': l.get('direction', 'ascending'),
+        'is_key': l.get('is_key', False),
+        'anchor': l.get('anchor', l['value']),
+    } for l in sorted_lines])
+    
+    price_json = json.dumps(current_price) if current_price else 'null'
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Orbitron:wght@400;600;700&family=Rajdhani:wght@400;500;600;700&display=swap');
+        
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ 
+            background: transparent; 
+            font-family: 'JetBrains Mono', monospace;
+            overflow: hidden;
+        }}
+        
+        .ladder-container {{
+            position: relative;
+            width: 100%;
+            height: {height}px;
+            display: flex;
+            flex-direction: row;
+        }}
+        
+        /* Left labels area */
+        .ladder-labels {{
+            width: 140px;
+            position: relative;
+            flex-shrink: 0;
+        }}
+        
+        /* Central gauge column */
+        .ladder-gauge {{
+            flex: 1;
+            position: relative;
+            margin: 0 10px;
+        }}
+        
+        /* The vertical track */
+        .gauge-track {{
+            position: absolute;
+            left: 50%;
+            top: 10px;
+            bottom: 10px;
+            width: 4px;
+            transform: translateX(-50%);
+            background: linear-gradient(180deg, 
+                rgba(255,23,68,0.15) 0%, 
+                rgba(255,255,255,0.05) 50%, 
+                rgba(0,230,118,0.15) 100%);
+            border-radius: 2px;
+        }}
+        
+        /* Right values area */
+        .ladder-values {{
+            width: 160px;
+            position: relative;
+            flex-shrink: 0;
+        }}
+        
+        /* Individual line notch */
+        .line-notch {{
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 2px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }}
+        .line-notch:hover {{
+            height: 4px;
+            filter: brightness(1.5);
+        }}
+        .line-notch.key {{
+            height: 3px;
+        }}
+        .line-notch.key:hover {{
+            height: 5px;
+        }}
+        
+        /* Glow effect behind notch */
+        .notch-glow {{
+            position: absolute;
+            left: -20px;
+            right: -20px;
+            top: -6px;
+            bottom: -6px;
+            border-radius: 4px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+        }}
+        .line-notch:hover .notch-glow {{
+            opacity: 1;
+        }}
+        .line-notch.key .notch-glow {{
+            opacity: 0.4;
+        }}
+        
+        /* Zone fills between lines */
+        .zone-fill {{
+            position: absolute;
+            left: 30%;
+            right: 30%;
+            opacity: 0.4;
+            border-radius: 2px;
+            pointer-events: none;
+        }}
+        
+        /* Label on left */
+        .line-label {{
+            position: absolute;
+            right: 8px;
+            transform: translateY(-50%);
+            font-size: 11px;
+            font-weight: 600;
+            white-space: nowrap;
+            opacity: 0.8;
+            transition: all 0.3s ease;
+            font-family: 'Rajdhani', sans-serif;
+        }}
+        .line-label.key {{
+            font-size: 12px;
+            opacity: 1;
+            font-weight: 700;
+        }}
+        
+        /* Value on right */
+        .line-value {{
+            position: absolute;
+            left: 8px;
+            transform: translateY(-50%);
+            font-size: 11px;
+            font-weight: 600;
+            color: #ccd6f6;
+            white-space: nowrap;
+            transition: all 0.3s ease;
+            font-family: 'JetBrains Mono', monospace;
+        }}
+        .line-value.key {{
+            font-size: 13px;
+            font-weight: 700;
+        }}
+        
+        /* Distance badge */
+        .dist-badge {{
+            font-size: 9px;
+            color: #3a4a6a;
+            margin-left: 4px;
+        }}
+        
+        /* Price marker */
+        .price-marker {{
+            position: absolute;
+            left: -30px;
+            right: -30px;
+            height: 3px;
+            z-index: 10;
+            transition: top 0.5s ease;
+        }}
+        .price-line {{
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 50%;
+            height: 2px;
+            background: #00d4ff;
+            box-shadow: 0 0 12px rgba(0,212,255,0.6), 0 0 24px rgba(0,212,255,0.3);
+        }}
+        .price-glow {{
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: -4px;
+            height: 11px;
+            background: rgba(0,212,255,0.08);
+            border-radius: 4px;
+        }}
+        .price-diamond {{
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 14px;
+            height: 14px;
+            background: #00d4ff;
+            transform: translate(-50%, -50%) rotate(45deg);
+            box-shadow: 0 0 12px rgba(0,212,255,0.8), 0 0 24px rgba(0,212,255,0.4);
+            border-radius: 2px;
+            animation: pulse-diamond 2s ease-in-out infinite;
+        }}
+        @keyframes pulse-diamond {{
+            0%, 100% {{ box-shadow: 0 0 12px rgba(0,212,255,0.8), 0 0 24px rgba(0,212,255,0.4); }}
+            50% {{ box-shadow: 0 0 20px rgba(0,212,255,1), 0 0 40px rgba(0,212,255,0.6); }}
+        }}
+        
+        /* Price label */
+        .price-label-left {{
+            position: absolute;
+            right: 8px;
+            transform: translateY(-50%);
+            font-family: 'Orbitron', monospace;
+            font-size: 11px;
+            font-weight: 700;
+            color: #00d4ff;
+            text-shadow: 0 0 8px rgba(0,212,255,0.5);
+            white-space: nowrap;
+        }}
+        .price-label-right {{
+            position: absolute;
+            left: 8px;
+            transform: translateY(-50%);
+            font-family: 'Orbitron', monospace;
+            font-size: 13px;
+            font-weight: 700;
+            color: #00d4ff;
+            text-shadow: 0 0 8px rgba(0,212,255,0.5);
+            white-space: nowrap;
+        }}
+        
+        /* Distance connector */
+        .distance-connector {{
+            position: absolute;
+            left: 50%;
+            width: 1px;
+            border-left: 1px dashed rgba(0,212,255,0.2);
+            z-index: 5;
+            pointer-events: none;
+        }}
+        .distance-label {{
+            position: absolute;
+            left: calc(50% + 8px);
+            font-size: 10px;
+            font-family: 'JetBrains Mono', monospace;
+            color: rgba(0,212,255,0.4);
+            white-space: nowrap;
+            pointer-events: none;
+        }}
+        
+        /* Tooltip */
+        .tooltip {{
+            position: absolute;
+            left: calc(50% + 20px);
+            transform: translateY(-50%);
+            background: rgba(6,9,16,0.95);
+            border: 1px solid rgba(0,212,255,0.3);
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 11px;
+            color: #ccd6f6;
+            white-space: nowrap;
+            z-index: 100;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }}
+        
+        /* Entry animation */
+        .animate-in {{
+            animation: slide-in 0.4s ease-out both;
+        }}
+        @keyframes slide-in {{
+            from {{ opacity: 0; transform: translateX(-10px); }}
+            to {{ opacity: 1; transform: translateX(0); }}
+        }}
+    </style>
+    </head>
+    <body>
+    <div class="ladder-container" id="ladder"></div>
+    
+    <script>
+    const lines = {lines_json};
+    const currentPrice = {price_json};
+    const viewMin = {view_min};
+    const viewMax = {view_max};
+    const viewRange = {view_range};
+    const showZones = {'true' if show_zones else 'false'};
+    const showDistances = {'true' if show_distances else 'false'};
+    const height = {height};
+    const padding = 15;
+    
+    function priceToY(price) {{
+        return padding + (1 - (price - viewMin) / viewRange) * (height - 2 * padding);
+    }}
+    
+    const container = document.getElementById('ladder');
+    
+    // Create three columns
+    const labelsDiv = document.createElement('div');
+    labelsDiv.className = 'ladder-labels';
+    const gaugeDiv = document.createElement('div');
+    gaugeDiv.className = 'ladder-gauge';
+    const valuesDiv = document.createElement('div');
+    valuesDiv.className = 'ladder-values';
+    
+    // Gauge track
+    const track = document.createElement('div');
+    track.className = 'gauge-track';
+    gaugeDiv.appendChild(track);
+    
+    // Zone fills between adjacent lines
+    if (showZones) {{
+        for (let i = 0; i < lines.length - 1; i++) {{
+            const upper = lines[i];
+            const lower = lines[i + 1];
+            const y1 = priceToY(upper.value);
+            const y2 = priceToY(lower.value);
+            
+            const zone = document.createElement('div');
+            zone.className = 'zone-fill';
+            zone.style.top = y1 + 'px';
+            zone.style.height = (y2 - y1) + 'px';
+            
+            if (upper.direction === 'ascending' && lower.direction === 'descending') {{
+                zone.style.background = 'rgba(255,215,64,0.06)';
+            }} else if (upper.direction === 'descending') {{
+                zone.style.background = 'rgba(0,230,118,0.03)';
+            }} else {{
+                zone.style.background = 'rgba(255,23,68,0.03)';
+            }}
+            gaugeDiv.appendChild(zone);
+        }}
+    }}
+    
+    // Render each line
+    lines.forEach((line, i) => {{
+        const y = priceToY(line.value);
+        const delay = i * 40;
+        
+        // Notch on gauge
+        const notch = document.createElement('div');
+        notch.className = 'line-notch' + (line.is_key ? ' key' : '');
+        notch.style.top = (y - 1) + 'px';
+        notch.style.background = line.color;
+        notch.style.animationDelay = delay + 'ms';
+        
+        // Glow
+        const glow = document.createElement('div');
+        glow.className = 'notch-glow';
+        glow.style.background = line.color.replace(')', ',0.15)').replace('rgb', 'rgba');
+        notch.appendChild(glow);
+        
+        gaugeDiv.appendChild(notch);
+        
+        // Left label
+        const label = document.createElement('div');
+        label.className = 'line-label animate-in' + (line.is_key ? ' key' : '');
+        label.style.top = y + 'px';
+        label.style.color = line.color;
+        label.style.animationDelay = delay + 'ms';
+        const icon = line.direction === 'ascending' ? '↗' : '↘';
+        label.textContent = line.label + ' ' + icon;
+        labelsDiv.appendChild(label);
+        
+        // Right value
+        const val = document.createElement('div');
+        val.className = 'line-value animate-in' + (line.is_key ? ' key' : '');
+        val.style.top = y + 'px';
+        val.style.animationDelay = delay + 'ms';
+        
+        let distHtml = '';
+        if (currentPrice && showDistances) {{
+            const dist = line.value - currentPrice;
+            const distColor = dist > 0 ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.25)';
+            distHtml = '<span class="dist-badge">' + (dist > 0 ? '+' : '') + dist.toFixed(1) + '</span>';
+        }}
+        val.innerHTML = line.value.toFixed(2) + distHtml;
+        valuesDiv.appendChild(val);
+        
+        // Hover tooltip
+        notch.addEventListener('mouseenter', (e) => {{
+            notch.querySelector('.notch-glow').style.opacity = '1';
+        }});
+        notch.addEventListener('mouseleave', (e) => {{
+            if (!line.is_key) notch.querySelector('.notch-glow').style.opacity = '0';
+        }});
+    }});
+    
+    // Price marker
+    if (currentPrice) {{
+        const priceY = priceToY(currentPrice);
+        
+        // Marker on gauge
+        const marker = document.createElement('div');
+        marker.className = 'price-marker';
+        marker.style.top = (priceY - 1.5) + 'px';
+        
+        const glow = document.createElement('div');
+        glow.className = 'price-glow';
+        marker.appendChild(glow);
+        
+        const priceLine = document.createElement('div');
+        priceLine.className = 'price-line';
+        marker.appendChild(priceLine);
+        
+        const diamond = document.createElement('div');
+        diamond.className = 'price-diamond';
+        marker.appendChild(diamond);
+        
+        gaugeDiv.appendChild(marker);
+        
+        // Price label left
+        const priceLeft = document.createElement('div');
+        priceLeft.className = 'price-label-left';
+        priceLeft.style.top = priceY + 'px';
+        priceLeft.textContent = '◉ PRICE';
+        labelsDiv.appendChild(priceLeft);
+        
+        // Price label right  
+        const priceRight = document.createElement('div');
+        priceRight.className = 'price-label-right';
+        priceRight.style.top = priceY + 'px';
+        priceRight.textContent = currentPrice.toFixed(2);
+        valuesDiv.appendChild(priceRight);
+        
+        // Distance connectors to nearest lines
+        if (showDistances) {{
+            const above = lines.filter(l => l.value > currentPrice);
+            const below = lines.filter(l => l.value <= currentPrice);
+            
+            if (above.length > 0) {{
+                const nearest = above[above.length - 1];
+                const ny = priceToY(nearest.value);
+                const connector = document.createElement('div');
+                connector.className = 'distance-connector';
+                connector.style.top = ny + 'px';
+                connector.style.height = (priceY - ny) + 'px';
+                gaugeDiv.appendChild(connector);
+                
+                const dLabel = document.createElement('div');
+                dLabel.className = 'distance-label';
+                dLabel.style.top = ((ny + priceY) / 2) + 'px';
+                dLabel.textContent = (nearest.value - currentPrice).toFixed(1) + 'pt ↑';
+                gaugeDiv.appendChild(dLabel);
+            }}
+            
+            if (below.length > 0) {{
+                const nearest = below[0];
+                const ny = priceToY(nearest.value);
+                const connector = document.createElement('div');
+                connector.className = 'distance-connector';
+                connector.style.top = priceY + 'px';
+                connector.style.height = (ny - priceY) + 'px';
+                gaugeDiv.appendChild(connector);
+                
+                const dLabel = document.createElement('div');
+                dLabel.className = 'distance-label';
+                dLabel.style.top = ((ny + priceY) / 2) + 'px';
+                dLabel.textContent = (currentPrice - nearest.value).toFixed(1) + 'pt ↓';
+                gaugeDiv.appendChild(dLabel);
+            }}
+        }}
+    }}
+    
+    container.appendChild(labelsDiv);
+    container.appendChild(gaugeDiv);
+    container.appendChild(valuesDiv);
+    </script>
+    </body>
+    </html>
+    """
+    
+    components.html(html, height=height + 10, scrolling=False)
+
+
+def render_signal_display(signal_text: str, signal_detail: str, signal_class: str):
+    """
+    Render an animated signal display — radar-style with pulsing ring.
+    signal_class: 'bull', 'bear', or 'neutral'
+    """
+    import streamlit.components.v1 as components
+    
+    color = '#00e676' if signal_class == 'bull' else '#ff1744' if signal_class == 'bear' else '#ffd740'
+    bg_color = 'rgba(0,230,118,0.06)' if signal_class == 'bull' else 'rgba(255,23,68,0.06)' if signal_class == 'bear' else 'rgba(255,215,64,0.06)'
+    ring_anim = 'pulse-ring-bull' if signal_class == 'bull' else 'pulse-ring-bear' if signal_class == 'bear' else 'pulse-ring-neutral'
+    icon = '🔺' if signal_class == 'bull' else '🔻' if signal_class == 'bear' else '⏸'
+    
+    html = f"""
+    <div style="font-family:'JetBrains Mono',monospace; text-align:center; padding:24px 16px; 
+                background:{bg_color}; border:1px solid {color}30; border-radius:16px; position:relative; overflow:hidden;">
+      
+      <!-- Animated corner accents -->
+      <div style="position:absolute;top:0;left:0;width:40px;height:2px;background:linear-gradient(90deg,{color},{color}00);"></div>
+      <div style="position:absolute;top:0;left:0;width:2px;height:40px;background:linear-gradient(180deg,{color},{color}00);"></div>
+      <div style="position:absolute;top:0;right:0;width:40px;height:2px;background:linear-gradient(-90deg,{color},{color}00);"></div>
+      <div style="position:absolute;top:0;right:0;width:2px;height:40px;background:linear-gradient(180deg,{color},{color}00);"></div>
+      <div style="position:absolute;bottom:0;left:0;width:40px;height:2px;background:linear-gradient(90deg,{color},{color}00);"></div>
+      <div style="position:absolute;bottom:0;left:0;width:2px;height:40px;background:linear-gradient(0deg,{color},{color}00);"></div>
+      <div style="position:absolute;bottom:0;right:0;width:40px;height:2px;background:linear-gradient(-90deg,{color},{color}00);"></div>
+      <div style="position:absolute;bottom:0;right:0;width:2px;height:40px;background:linear-gradient(0deg,{color},{color}00);"></div>
+      
+      <!-- Pulsing radar ring -->
+      <svg width="80" height="80" viewBox="0 0 80 80" style="margin-bottom:12px;">
+        <circle cx="40" cy="40" r="35" fill="none" stroke="{color}15" stroke-width="2"/>
+        <circle cx="40" cy="40" r="35" fill="none" stroke="{color}" stroke-width="2" 
+                stroke-dasharray="220" stroke-dashoffset="220" stroke-linecap="round"
+                transform="rotate(-90 40 40)">
+          <animate attributeName="stroke-dashoffset" from="220" to="0" dur="1.2s" fill="freeze" 
+                   calcMode="spline" keySplines="0.4 0 0.2 1"/>
+        </circle>
+        <circle cx="40" cy="40" r="25" fill="none" stroke="{color}10" stroke-width="1"/>
+        <circle cx="40" cy="40" r="15" fill="{color}15" stroke="{color}40" stroke-width="1">
+          <animate attributeName="r" values="15;17;15" dur="2s" repeatCount="indefinite"/>
+        </circle>
+        <text x="40" y="45" text-anchor="middle" font-size="20">{icon}</text>
+      </svg>
+      
+      <!-- Signal text -->
+      <div style="font-family:'Orbitron',monospace; font-size:1.4rem; color:{color}; font-weight:700;
+                  text-shadow:0 0 20px {color}40; letter-spacing:1px;">
+        {signal_text}
+      </div>
+      
+      <!-- Detail -->
+      <div style="font-family:'Rajdhani',sans-serif; font-size:0.9rem; color:#8892b0; margin-top:10px; 
+                  line-height:1.4; max-width:400px; margin-left:auto; margin-right:auto;">
+        {signal_detail}
+      </div>
+    </div>
+    """
+    components.html(html, height=260, scrolling=False)
+
+
+def render_scenario_cards(scenarios: list, num_contracts: int = 3):
+    """
+    Render premium scenario cards as an interactive visual grid.
+    scenarios: list of dicts with keys: label, spx_label, premium, color, spx_short, desc, entry_premium
+    """
+    import streamlit.components.v1 as components
+    import json
+    
+    cards_html = ""
+    for s in scenarios:
+        pnl_per_contract = (s['premium'] - s['entry_premium']) * 100
+        pnl_total = pnl_per_contract * num_contracts
+        pnl_color = '#00e676' if pnl_total >= 0 else '#ff1744'
+        pnl_sign = '+' if pnl_total >= 0 else ''
+        pnl_pct = ((s['premium'] - s['entry_premium']) / s['entry_premium'] * 100) if s['entry_premium'] > 0 else 0
+        bar_width = min(abs(pnl_pct), 100)
+        
+        cards_html += f"""
+        <div class="sc-card" style="--card-color:{s['color']};">
+          <div class="sc-label">{s['label']}</div>
+          <div class="sc-spx">{s['spx_label']}</div>
+          <div class="sc-premium">${s['premium']:.2f}</div>
+          <div class="sc-per-contract">${s['premium']*100:.0f}/contract</div>
+          <div class="sc-pnl-bar-track">
+            <div class="sc-pnl-bar" style="width:{bar_width}%;background:{pnl_color};"></div>
+          </div>
+          <div class="sc-pnl" style="color:{pnl_color};">{pnl_sign}${pnl_total:,.0f}</div>
+          <div class="sc-pnl-pct" style="color:{pnl_color};">{pnl_sign}{pnl_pct:.0f}%</div>
+          <div class="sc-desc">{s['desc']}</div>
+        </div>
+        """
+    
+    html = f"""
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Orbitron:wght@400;600;700&family=Rajdhani:wght@400;500;600;700&display=swap');
+      * {{ margin:0; padding:0; box-sizing:border-box; }}
+      body {{ background:transparent; }}
+      
+      .sc-grid {{
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
+      }}
+      .sc-card {{
+        background: linear-gradient(145deg, #131a2e 0%, #0a0f1a 100%);
+        border: 1px solid color-mix(in srgb, var(--card-color) 20%, transparent);
+        border-radius: 12px;
+        padding: 14px 12px;
+        text-align: center;
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+      }}
+      .sc-card::before {{
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, var(--card-color), transparent);
+        opacity: 0.5;
+      }}
+      .sc-card:hover {{
+        transform: translateY(-2px);
+        border-color: color-mix(in srgb, var(--card-color) 40%, transparent);
+        box-shadow: 0 8px 24px rgba(0,0,0,0.3), 0 0 15px color-mix(in srgb, var(--card-color) 10%, transparent);
+      }}
+      .sc-label {{
+        font-family: 'Rajdhani', sans-serif;
+        color: var(--card-color);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        font-weight: 600;
+      }}
+      .sc-spx {{
+        font-family: 'JetBrains Mono', monospace;
+        color: #3a4a6a;
+        font-size: 10px;
+        margin: 3px 0;
+      }}
+      .sc-premium {{
+        font-family: 'JetBrains Mono', monospace;
+        color: var(--card-color);
+        font-size: 1.5rem;
+        font-weight: 700;
+        margin: 4px 0;
+        text-shadow: 0 0 12px color-mix(in srgb, var(--card-color) 30%, transparent);
+      }}
+      .sc-per-contract {{
+        font-family: 'JetBrains Mono', monospace;
+        color: #3a4a6a;
+        font-size: 10px;
+      }}
+      .sc-pnl-bar-track {{
+        height: 3px;
+        background: rgba(255,255,255,0.03);
+        border-radius: 2px;
+        margin: 8px 0 4px;
+        overflow: hidden;
+      }}
+      .sc-pnl-bar {{
+        height: 100%;
+        border-radius: 2px;
+        transition: width 1s ease;
+      }}
+      .sc-pnl {{
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 14px;
+        font-weight: 700;
+      }}
+      .sc-pnl-pct {{
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 10px;
+        opacity: 0.6;
+      }}
+      .sc-desc {{
+        font-family: 'Rajdhani', sans-serif;
+        color: #2a3a5a;
+        font-size: 10px;
+        margin-top: 4px;
+      }}
+    </style>
+    <div class="sc-grid">{cards_html}</div>
+    """
+    components.html(html, height=220, scrolling=False)
+
+
+def render_metric_row(metrics: list):
+    """
+    Render a row of metric cards with animated counters.
+    metrics: list of dicts with keys: label, value, subtitle (optional), color (optional)
+    """
+    import streamlit.components.v1 as components
+    
+    n = len(metrics)
+    cards_html = ""
+    for i, m in enumerate(metrics):
+        color = m.get('color', '#00d4ff')
+        subtitle = m.get('subtitle', '')
+        sub_html = f'<div class="mr-sub">{subtitle}</div>' if subtitle else ''
+        
+        cards_html += f"""
+        <div class="mr-card" style="--mc-color:{color}; animation-delay:{i*80}ms;">
+          <div class="mr-label">{m['label']}</div>
+          <div class="mr-value" style="color:{color};">{m['value']}</div>
+          {sub_html}
+        </div>
+        """
+    
+    html = f"""
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Orbitron:wght@400;600;700&family=Rajdhani:wght@400;500;600;700&display=swap');
+      * {{ margin:0; padding:0; box-sizing:border-box; }}
+      body {{ background:transparent; }}
+      
+      .mr-grid {{
+        display: grid;
+        grid-template-columns: repeat({n}, 1fr);
+        gap: 10px;
+      }}
+      .mr-card {{
+        background: linear-gradient(145deg, rgba(16,22,40,0.8) 0%, rgba(8,12,24,0.9) 100%);
+        border: 1px solid rgba(255,255,255,0.04);
+        border-radius: 12px;
+        padding: 16px 12px;
+        text-align: center;
+        position: relative;
+        overflow: hidden;
+        animation: mr-fade-in 0.5s ease both;
+      }}
+      .mr-card::after {{
+        content: '';
+        position: absolute;
+        bottom: 0; left: 20%; right: 20%;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, var(--mc-color), transparent);
+        opacity: 0.3;
+      }}
+      @keyframes mr-fade-in {{
+        from {{ opacity:0; transform:translateY(8px); }}
+        to {{ opacity:1; transform:translateY(0); }}
+      }}
+      .mr-label {{
+        font-family: 'Orbitron', monospace;
+        color: #3a4a6a;
+        font-size: 9px;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        margin-bottom: 8px;
+      }}
+      .mr-value {{
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 1.6rem;
+        font-weight: 700;
+        text-shadow: 0 0 12px color-mix(in srgb, var(--mc-color) 25%, transparent);
+      }}
+      .mr-sub {{
+        font-family: 'JetBrains Mono', monospace;
+        color: #3a4a6a;
+        font-size: 10px;
+        margin-top: 4px;
+      }}
+    </style>
+    <div class="mr-grid">{cards_html}</div>
+    """
+    components.html(html, height=110, scrolling=False)
+
+
 def calculate_nine_am_levels(bounces: list, rejections: list,
                              highest_wick: dict, lowest_wick: dict,
                              next_day_date: datetime) -> dict:
@@ -2338,34 +3113,19 @@ def main():
         ladder_9am.sort(key=lambda x: x['value'], reverse=True)
         
         if ladder_9am:
-            ladder_html = '<div style="font-family: JetBrains Mono, monospace; font-size: 0.85rem;">'
-            for i, line in enumerate(ladder_9am):
-                bg = 'rgba(255,23,68,0.06)' if line['direction'] == 'ascending' else 'rgba(0,230,118,0.06)'
-                border = line['color']
-                weight = 'bold' if line['is_key'] else 'normal'
-                key_tag = ' ★' if line['is_key'] else ''
-                change_sign = '+' if line['change'] >= 0 else ''
-                delay = i * 0.04
-                ladder_html += f"""
-                <div class="ladder-row" style="border-left: 3px solid {border};
-                            background: {bg}; animation: fade-in-up 0.3s ease {delay}s both;">
-                    <span style="color: {line['color']}; min-width: 140px; font-weight: {weight};">
-                        {line['short']} {line['name'][:20]}{key_tag}
-                    </span>
-                    <span style="color: #ccd6f6; font-weight: 700; min-width: 80px; text-align:right;">
-                        {line['value']:.2f}
-                    </span>
-                    <span style="color: #3a4a6a; font-size: 0.73rem; min-width: 100px; text-align:right;">
-                        Anchor: {line['anchor']:.2f}
-                    </span>
-                    <span style="color: {'#00e676' if line['change'] >= 0 else '#ff5252'}; font-size: 0.73rem; min-width: 70px; text-align:right;">
-                        {change_sign}{line['change']:.2f}
-                    </span>
-                </div>"""
-            ladder_html += '</div>'
-            st.markdown(ladder_html, unsafe_allow_html=True)
-            
-            st.caption("★ = Key decision level (highest bounce, lowest rejection, wicks)")
+            # Show live price on 9AM ladder if available
+            live_ladder_price = None
+            if live_mode and live_price_data and live_price_data.get('ok'):
+                live_ladder_price = live_price_data['price'] - es_offset_val
+            render_visual_ladder(
+                lines=[{
+                    'value': l['value'], 'label': l['short'], 'full_name': l['name'],
+                    'color': l['color'], 'direction': l['direction'], 'is_key': l['is_key'],
+                } for l in ladder_9am],
+                current_price=live_ladder_price,
+                title="9 AM Projected Levels",
+                height=max(400, len(ladder_9am) * 45),
+            )
     
     # ============================================================
     # TAB 2: ASIAN SESSION FUTURES — 6 PM DECISION FRAMEWORK
@@ -2454,20 +3214,18 @@ def main():
         st.caption("All projected lines sorted by 6 PM value — highest to lowest")
         
         if line_ladder_6pm:
-            ladder_html = '<div style="font-family: JetBrains Mono; font-size: 0.85rem;">'
-            for i, line in enumerate(line_ladder_6pm):
-                bg = 'rgba(255,23,68,0.08)' if line['direction'] == 'ascending' else 'rgba(0,230,118,0.08)'
-                border = line['color']
-                ladder_html += f"""
-                <div style="display:flex; justify-content:space-between; align-items:center;
-                            padding: 8px 12px; margin: 2px 0; border-left: 3px solid {border};
-                            background: {bg}; border-radius: 0 6px 6px 0;">
-                    <span style="color: {line['color']}; min-width: 120px;">{line['short']} {line['name'][:20]}</span>
-                    <span style="color: #ccd6f6; font-weight: 700;">{line['value_6pm']:.2f}</span>
-                    <span style="color: #5a6a8a; font-size: 0.75rem;">→ 7PM: {line['value_7pm']:.2f}</span>
-                </div>"""
-            ladder_html += '</div>'
-            st.markdown(ladder_html, unsafe_allow_html=True)
+            # Pass the 6PM locked price if available
+            ladder_price_6pm = asian_price if asian_price else None
+            render_visual_ladder(
+                lines=[{
+                    'value': l['value_6pm'], 'label': l['short'], 'full_name': l['name'],
+                    'color': l['color'], 'direction': l['direction'], 
+                    'is_key': 'HW' in l['short'] or 'LW' in l['short'] or 'HB' in l['short'] or 'LR' in l['short'],
+                } for l in line_ladder_6pm],
+                current_price=ladder_price_6pm,
+                title="6 PM Line Ladder",
+                height=max(400, len(line_ladder_6pm) * 45),
+            )
         
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
         
@@ -2861,16 +3619,7 @@ def main():
         
         # Signal display
         sig_color = '#00e676' if signal_class == 'bull' else '#ff1744' if signal_class == 'bear' else '#ffd740'
-        st.markdown(f"""
-        <div class="signal-box-{signal_class}">
-            <div style="font-family: 'Orbitron'; font-size: 1.5rem; color: {sig_color};">
-                {signal}
-            </div>
-            <div style="font-family: 'Rajdhani'; font-size: 1rem; color: #8892b0; margin-top: 10px;">
-                {signal_detail}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        render_signal_display(signal, signal_detail, signal_class)
         
         # ============================================================
         # LINE LADDER WITH PRICE POSITION
@@ -2879,47 +3628,16 @@ def main():
         st.markdown("### 📊 9 AM Line Ladder — Price Position")
         
         if ny_ladder:
-            ladder_html = '<div style="font-family: JetBrains Mono; font-size: 0.85rem;">'
-            price_inserted = False
-            
-            for i, line in enumerate(ny_ladder):
-                # Insert price marker when we pass below it
-                if not price_inserted and line['value'] <= current_price:
-                    ladder_html += f"""
-                    <div style="display:flex; justify-content:center; align-items:center;
-                                padding: 6px 12px; margin: 4px 0; border: 2px solid {sig_color};
-                                background: rgba(255,215,64,0.1); border-radius: 8px;">
-                        <span style="color: {sig_color}; font-weight: 700; font-size: 1.1rem;">
-                            ▶ SPX: {current_price:.2f} ◀
-                        </span>
-                    </div>"""
-                    price_inserted = True
-                
-                bg = 'rgba(255,23,68,0.08)' if line['direction'] == 'ascending' else 'rgba(0,230,118,0.08)'
-                dist = current_price - line['value']
-                dist_str = f"{'▲' if dist > 0 else '▼'}{abs(dist):.1f}"
-                
-                ladder_html += f"""
-                <div style="display:flex; justify-content:space-between; align-items:center;
-                            padding: 6px 12px; margin: 2px 0; border-left: 3px solid {line['color']};
-                            background: {bg}; border-radius: 0 6px 6px 0;">
-                    <span style="color: {line['color']}; min-width: 120px;">{line['short']} {line['name'][:18]}</span>
-                    <span style="color: #ccd6f6; font-weight: 700;">{line['value']:.2f}</span>
-                    <span style="color: #5a6a8a; font-size: 0.75rem;">{dist_str}</span>
-                </div>"""
-            
-            # If price is below all lines
-            if not price_inserted:
-                ladder_html += f"""
-                <div style="display:flex; justify-content:center; padding: 6px 12px; margin: 4px 0;
-                            border: 2px solid {sig_color}; background: rgba(255,215,64,0.1); border-radius: 8px;">
-                    <span style="color: {sig_color}; font-weight: 700; font-size: 1.1rem;">
-                        ▶ SPX: {current_price:.2f} ◀
-                    </span>
-                </div>"""
-            
-            ladder_html += '</div>'
-            st.markdown(ladder_html, unsafe_allow_html=True)
+            render_visual_ladder(
+                lines=[{
+                    'value': l['value'], 'label': l['short'], 'full_name': l['name'],
+                    'color': l['color'], 'direction': l['direction'],
+                    'is_key': 'HW' in l['short'] or 'LW' in l['short'] or 'HB' in l['short'] or 'LR' in l['short'],
+                } for l in ny_ladder],
+                current_price=current_price,
+                title="9 AM Line Ladder",
+                height=max(500, len(ny_ladder) * 45),
+            )
         
         # ============================================================
         # OPTIONS TRADE CARD
@@ -3091,41 +3809,16 @@ def main():
             
             # Scenario cards
             scenario_data = [
-                ("AT ENTRY", f"SPX @ {current_price:.2f}", scenarios['at_entry'], '#ccd6f6', 
-                 f"{current_price:.0f}", "Your expected entry cost"),
-                ("AT STOP ✋", f"SPX @ {stop_price:.2f}", scenarios['at_stop'], '#ff1744',
-                 f"{stop_price:.0f}", f"Option value if stopped ({stop_line['short'] if stop_line else 'N/A'})"),
-                ("AT TP1 🎯", f"SPX @ {tp1:.2f}", scenarios['at_tp1'], '#00e676',
-                 f"{tp1:.0f}", f"Option value at Target 1 ({tp1_name})"),
-                ("AT TP2 🎯🎯", f"SPX @ {tp2:.2f}", scenarios['at_tp2'], '#00e676',
-                 f"{tp2:.0f}", f"Option value at Target 2 ({tp2_name})"),
+                {"label": "AT ENTRY", "spx_label": f"SPX @ {current_price:.2f}", "premium": scenarios['at_entry'], 
+                 "color": "#ccd6f6", "desc": "Your expected entry cost", "entry_premium": scenarios['at_entry']},
+                {"label": "AT STOP ✋", "spx_label": f"SPX @ {stop_price:.2f}", "premium": scenarios['at_stop'],
+                 "color": "#ff1744", "desc": f"Option value if stopped ({stop_line['short'] if stop_line else 'N/A'})", "entry_premium": scenarios['at_entry']},
+                {"label": "AT TP1 🎯", "spx_label": f"SPX @ {tp1:.2f}", "premium": scenarios['at_tp1'],
+                 "color": "#00e676", "desc": f"Option value at Target 1 ({tp1_name})", "entry_premium": scenarios['at_entry']},
+                {"label": "AT TP2 🎯🎯", "spx_label": f"SPX @ {tp2:.2f}", "premium": scenarios['at_tp2'],
+                 "color": "#00e676", "desc": f"Option value at Target 2 ({tp2_name})", "entry_premium": scenarios['at_entry']},
             ]
-            
-            scenario_html = '<div style="display:grid; grid-template-columns: repeat(4, 1fr); gap: 10px;">'
-            for label, spx_label, prem, color, spx_short, desc in scenario_data:
-                pnl_per_contract = (prem - scenarios['at_entry']) * 100
-                pnl_total = pnl_per_contract * num_contracts
-                pnl_color = '#00e676' if pnl_total >= 0 else '#ff1744'
-                pnl_sign = '+' if pnl_total >= 0 else ''
-                
-                scenario_html += f"""
-                <div style="background: linear-gradient(145deg, #131a2e 0%, #0d1220 100%);
-                            border: 1px solid {color}33; border-radius: 10px; padding: 12px; text-align:center;">
-                    <div style="font-family: Rajdhani; color: {color}; font-size: 0.75rem; text-transform:uppercase;
-                                letter-spacing: 1px;">{label}</div>
-                    <div style="font-family: JetBrains Mono; color: #5a6a8a; font-size: 0.7rem; margin: 2px 0;">
-                        {spx_label}</div>
-                    <div style="font-family: JetBrains Mono; color: {color}; font-size: 1.4rem; font-weight:700;">
-                        ${prem:.2f}</div>
-                    <div style="font-family: JetBrains Mono; color: #5a6a8a; font-size: 0.7rem;">
-                        ${prem*100:.0f}/contract</div>
-                    <div style="font-family: JetBrains Mono; color: {pnl_color}; font-size: 0.8rem; margin-top: 4px;">
-                        {pnl_sign}${pnl_total:,.0f}</div>
-                    <div style="font-family: Rajdhani; color: #3a4a6a; font-size: 0.65rem; margin-top: 2px;">
-                        {desc}</div>
-                </div>"""
-            scenario_html += '</div>'
-            st.markdown(scenario_html, unsafe_allow_html=True)
+            render_scenario_cards(scenario_data, num_contracts)
             
             st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
             
@@ -3316,18 +4009,40 @@ def main():
         confluence = calculate_confluence(asian_aligns, london_sweep, data_reaction,
                                           opening_drive, line_cluster)
         
-        st.markdown(f"""
-        <div class="metric-card" style="text-align:center;">
-            <div class="metric-label">Confluence Score</div>
-            <div class="confluence-{confluence['color']}">{confluence['score']}/5</div>
-            <div style="font-family: 'Rajdhani'; color: {'#00e676' if confluence['color']=='high' else '#ffd740' if confluence['color']=='med' else '#ff1744'}; font-size: 1.1rem; margin-top: 8px;">
-                {confluence['recommendation']}
+        # Radial confluence gauge
+        def render_confluence_gauge(score, factors, recommendation, color_class):
+            import streamlit.components.v1 as components
+            score_color = '#00e676' if color_class == 'high' else '#ffd740' if color_class == 'med' else '#ff1744'
+            pct = score / 5.0
+            dash_val = pct * 283  # circumference of r=45
+            
+            factors_json = ''.join([f'<div style="font-family:JetBrains Mono,monospace;font-size:11px;color:#8892b0;padding:3px 0;">{f}</div>' for f in factors])
+            
+            html = f"""
+            <div style="text-align:center;padding:20px 0;">
+              <svg width="160" height="160" viewBox="0 0 120 120" style="filter:drop-shadow(0 0 12px {score_color}40);">
+                <circle cx="60" cy="60" r="45" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="8"/>
+                <circle cx="60" cy="60" r="45" fill="none" stroke="{score_color}" stroke-width="8" 
+                  stroke-dasharray="{dash_val} 283" stroke-dashoffset="0" stroke-linecap="round"
+                  transform="rotate(-90 60 60)"
+                  style="transition:stroke-dasharray 1s ease;">
+                  <animate attributeName="stroke-dasharray" from="0 283" to="{dash_val} 283" dur="1s" fill="freeze"/>
+                </circle>
+                <text x="60" y="55" text-anchor="middle" font-family="Orbitron,monospace" font-size="24" font-weight="700" fill="{score_color}">{score}</text>
+                <text x="60" y="72" text-anchor="middle" font-family="Rajdhani,sans-serif" font-size="10" fill="#5a6a8a">/5 CONFLUENCE</text>
+              </svg>
+              <div style="font-family:Rajdhani,sans-serif;color:{score_color};font-size:16px;font-weight:600;margin-top:8px;">
+                {recommendation}
+              </div>
+              <div style="margin-top:12px;text-align:left;max-width:320px;margin-left:auto;margin-right:auto;">
+                {factors_json}
+              </div>
             </div>
-        </div>
-        """, unsafe_allow_html=True)
+            """
+            components.html(html, height=320, scrolling=False)
         
-        for factor in confluence['factors']:
-            st.markdown(f"<span style='font-family: JetBrains Mono; font-size: 0.85rem; color: #8892b0;'>{factor}</span>", unsafe_allow_html=True)
+        render_confluence_gauge(confluence['score'], confluence['factors'], 
+                               confluence['recommendation'], confluence['color'])
     
     # ============================================================
     # TAB 4: TRADE LOG — Daily Journal + Persistent Trade Storage
@@ -3617,35 +4332,16 @@ def main():
             wr_color = "bull" if win_rate >= 50 else ("neutral" if win_rate >= 40 else "bear")
             
             c1, c2, c3, c4 = st.columns(4)
-            with c1:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-label">Total P&L</div>
-                    <div class="metric-value-{pnl_color}">${total_pnl:+,.0f}</div>
-                    <div style="font-family: JetBrains Mono, monospace; color: #3a4a6a; font-size: 0.75rem;">{total_trades} trades</div>
-                </div>""", unsafe_allow_html=True)
-            with c2:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-label">Win Rate</div>
-                    <div class="metric-value-{wr_color}">{win_rate:.0f}%</div>
-                    <div style="font-family: JetBrains Mono, monospace; color: #3a4a6a; font-size: 0.75rem;">{wins}W / {losses}L / {breakevens}BE</div>
-                </div>""", unsafe_allow_html=True)
-            with c3:
-                pf_color = "bull" if profit_factor >= 1.5 else ("neutral" if profit_factor >= 1.0 else "bear")
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-label">Profit Factor</div>
-                    <div class="metric-value-{pf_color}">{profit_factor:.2f}</div>
-                    <div style="font-family: JetBrains Mono, monospace; color: #3a4a6a; font-size: 0.75rem;">Avg W: ${avg_win:+,.0f} / L: ${avg_loss:+,.0f}</div>
-                </div>""", unsafe_allow_html=True)
-            with c4:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-label">Max Drawdown</div>
-                    <div class="metric-value-bear">${max_drawdown:,.0f}</div>
-                    <div style="font-family: JetBrains Mono, monospace; color: #3a4a6a; font-size: 0.75rem;">Best: ${best_trade:+,.0f} / Worst: ${worst_trade:+,.0f}</div>
-                </div>""", unsafe_allow_html=True)
+            pnl_met_color = '#00e676' if total_pnl >= 0 else '#ff1744'
+            wr_met_color = '#00e676' if win_rate >= 50 else ('#ffd740' if win_rate >= 40 else '#ff1744')
+            pf_met_color = '#00e676' if profit_factor >= 1.5 else ('#ffd740' if profit_factor >= 1.0 else '#ff1744')
+            
+            render_metric_row([
+                {'label': 'Total P&L', 'value': f'${total_pnl:+,.0f}', 'subtitle': f'{total_trades} trades', 'color': pnl_met_color},
+                {'label': 'Win Rate', 'value': f'{win_rate:.0f}%', 'subtitle': f'{wins}W / {losses}L / {breakevens}BE', 'color': wr_met_color},
+                {'label': 'Profit Factor', 'value': f'{profit_factor:.2f}', 'subtitle': f'Avg W: ${avg_win:+,.0f} / L: ${avg_loss:+,.0f}', 'color': pf_met_color},
+                {'label': 'Max Drawdown', 'value': f'${max_drawdown:,.0f}', 'subtitle': f'Best: ${best_trade:+,.0f} / Worst: ${worst_trade:+,.0f}', 'color': '#ff1744'},
+            ])
             
             # ── Equity Curve Chart ──
             if len(df_trades_sorted) >= 2:
