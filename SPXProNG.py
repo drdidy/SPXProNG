@@ -746,10 +746,7 @@ def render_visual_ladder(lines: list, current_price: float = None,
                     padding: {pad}; margin: 2px 0;
                     background: {bg}; border-left: {border_w} solid {color};
                     border-radius: 0 8px 8px 0; opacity:{opacity};
-                    transition: all 0.2s ease;
-                    animation: fade-in-up 0.3s ease {delay}s both;"
-             onmouseover="this.style.opacity='1';this.style.background='linear-gradient(90deg,{color}18,{color}08)'"
-             onmouseout="this.style.opacity='{opacity}';this.style.background='{bg}'">
+                    animation: fade-in-up 0.3s ease {delay}s both;">
             <span style="color: {color}; font-size:{font_size}; font-weight:{font_weight}; min-width:160px;">
                 {icon}{label} <span style="color:{color}88; font-size:0.7rem;">{full_name[:20]}</span>
             </span>
@@ -839,10 +836,7 @@ def render_scenario_cards(scenarios: list, num_contracts: int = 3):
         <div style="background: linear-gradient(145deg, #131a2e 0%, #0a0f1a 100%);
                     border: 1px solid {color}25; border-radius: 12px; padding: 14px 10px; text-align:center;
                     position:relative; overflow:hidden;
-                    animation: fade-in-up 0.4s ease {delay}s both;
-                    transition: all 0.25s ease;"
-             onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 8px 20px rgba(0,0,0,0.3)';this.style.borderColor='{color}50'"
-             onmouseout="this.style.transform='none';this.style.boxShadow='none';this.style.borderColor='{color}25'">
+                    animation: fade-in-up 0.4s ease {delay}s both;">
             
             <!-- Top accent line -->
             <div style="position:absolute;top:0;left:0;right:0;height:2px;
