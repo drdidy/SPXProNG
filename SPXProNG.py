@@ -3150,9 +3150,81 @@ def main():
         # ============================================================
         # 20-POINT ZONE GRID — Confluence with Structural Lines
         # ============================================================
+        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+        render_section_banner("🔲", "20-Point Zone Grid", "First Globex bounce (5-7 PM) × structural lines at zone edges", "#b388ff")
+        
+        # Zone grid anchor input — right here in NY tab
+        if st.session_state.get('_globex_bounce', 0) <= 0:
+            st.markdown("""
+            <div style="background:rgba(179,136,255,0.06);border:1px solid rgba(179,136,255,0.2);
+                        border-radius:10px;padding:14px 16px;margin:8px 0;">
+                <div style="color:#b388ff;font-weight:700;margin-bottom:6px;">⚠️ Zone Grid needs an anchor</div>
+                <div style="color:#5a6a8a;font-size:0.85rem;">
+                    Enter the first bounce (trough) from the 30-min ES line chart during the 5:00 - 7:00 PM Globex open, 
+                    or use Auto-Detect in the 🌙 Asian Session tab.
+                </div>
+            </div>""", unsafe_allow_html=True)
+        
+        ny_col_detect, ny_col_manual = st.columns([1, 1])
+        with ny_col_detect:
+            if st.button("🔍 Auto-Detect Globex Bounce", key="detect_globex_ny", use_container_width=True):
+                with st.spinner("Fetching ES 5-7 PM data..."):
+                    try:
+                        today_str = next_date.strftime('%Y-%m-%d')
+                        prior_str = (next_date - timedelta(days=1)).strftime('%Y-%m-%d')
+                        result = fetch_yfinance_candles(prior_str, today_str)
+                        if result['ok']:
+                            df = result['data']
+                            gs = datetime.combine(next_date - timedelta(days=1), time(17, 0))
+                            ge = datetime.combine(next_date - timedelta(days=1), time(19, 0))
+                            gdf = df[(df['datetime'] >= gs) & (df['datetime'] <= ge)]
+                            if len(gdf) >= 2:
+                                closes = gdf['close'].values
+                                times = gdf['datetime'].values
+                                found = None
+                                for i in range(1, len(closes) - 1):
+                                    if closes[i] <= closes[i-1] and closes[i] <= closes[i+1]:
+                                        found = {'price': float(closes[i]), 'time': pd.Timestamp(times[i]).to_pydatetime()}
+                                        break
+                                if not found:
+                                    mi = closes.argmin()
+                                    found = {'price': float(closes[mi]), 'time': pd.Timestamp(times[mi]).to_pydatetime()}
+                                st.session_state['_globex_bounce'] = found['price']
+                                st.session_state['_globex_bounce_time'] = found['time']
+                                st.success(f"✅ Globex bounce: **{found['price']:.2f}** @ {found['time'].strftime('%I:%M %p')}")
+                                st.rerun()
+                            else:
+                                st.warning(f"Only {len(gdf)} candles in 5-7 PM window.")
+                        else:
+                            st.error(f"Fetch failed: {result.get('error')}")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+        
+        with ny_col_manual:
+            ny_globex = st.number_input(
+                "Manual / Override (ES price)",
+                value=st.session_state.get('_globex_bounce', 0.0),
+                step=0.25, format="%.2f",
+                key="globex_bounce_ny",
+                help="First trough on 30-min ES line chart, 5-7 PM Globex open"
+            )
+            if ny_globex > 0:
+                st.session_state['_globex_bounce'] = ny_globex
+        
+        # Rebuild zone grid from current session state (in case just updated)
+        globex_bounce_val = st.session_state.get('_globex_bounce', 0.0)
+        es_offset_for_zones = st.session_state.get('global_es_offset', st.session_state.get('_es_offset', 0.0))
+        if globex_bounce_val > 0:
+            zone_anchor = globex_bounce_val - es_offset_for_zones
+            zone_grid = [zone_anchor + (i * 20) for i in range(-10, 11)]
+        
         if zone_grid and zone_anchor and ny_ladder:
-            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-            render_section_banner("🔲", "20-Point Zone Grid", f"Anchored from first bounce @ {zone_anchor:.2f} • ±20pt increments", "#b388ff")
+            st.markdown(f"""
+            <div style="background:rgba(179,136,255,0.04);border-left:3px solid #b388ff;padding:8px 14px;margin:8px 0;border-radius:0 8px 8px 0;">
+                <span style="color:#b388ff;font-weight:700;">Zone Anchor (SPX):</span>
+                <span style="color:#ccd6f6;font-weight:700;font-size:1rem;"> {zone_anchor:.2f}</span>
+                <span style="color:#5a6a8a;font-size:0.8rem;"> → ...{zone_anchor-20:.0f} | {zone_anchor:.0f} | {zone_anchor+20:.0f} | {zone_anchor+40:.0f}...</span>
+            </div>""", unsafe_allow_html=True)
             
             # Find zone edges near current price (show relevant range only)
             relevant_zones = [z for z in zone_grid if abs(z - current_price) <= 65]
