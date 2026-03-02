@@ -3219,19 +3219,33 @@ def main():
             zone_grid = [zone_anchor + (i * 20) for i in range(-10, 11)]
         
         if zone_grid and zone_anchor and ny_ladder:
+            
+            # ── HOW IT WORKS (collapsible) ──
+            with st.expander("ℹ️ How the Zone Grid Works", expanded=False):
+                st.markdown("""
+                **The 20-Point Zone Grid** divides the market into horizontal bands based on tonight's first ES futures bounce at Globex open (5-7 PM).
+                
+                **The Rule:** When a structural line from the 9 AM ladder lands exactly on a zone edge, the market reacts strongly at that level.
+                
+                - **Ascending line ↗ on a zone edge = RESISTANCE → BUY PUTS** (unless price breaks above and closes above it, then it flips to support → BUY CALLS)  
+                - **Descending line ↘ on a zone edge = SUPPORT → BUY CALLS** (unless price breaks below and closes below it, then it flips to resistance → BUY PUTS)  
+                - **No line on a zone edge = weaker reaction** (zone still matters but signal is less reliable)
+                
+                The app scans from 8:30 AM to 10:00 AM to find the exact time each line crosses a zone edge.
+                """)
+            
+            # ── ZONE ANCHOR INFO ──
             st.markdown(f"""
             <div style="background:rgba(179,136,255,0.04);border-left:3px solid #b388ff;padding:8px 14px;margin:8px 0;border-radius:0 8px 8px 0;">
-                <span style="color:#b388ff;font-weight:700;">Zone Anchor (SPX):</span>
-                <span style="color:#ccd6f6;font-weight:700;font-size:1rem;"> {zone_anchor:.2f}</span>
-                <span style="color:#5a6a8a;font-size:0.8rem;"> → ...{zone_anchor-20:.0f} | {zone_anchor:.0f} | {zone_anchor+20:.0f} | {zone_anchor+40:.0f}...</span>
+                <span style="color:#b388ff;font-weight:700;">🔲 Zone Anchor (SPX):</span>
+                <span style="color:#ccd6f6;font-weight:700;font-size:1.05rem;"> {zone_anchor:.2f}</span>
+                <span style="color:#5a6a8a;font-size:0.8rem;"> → Zones every 20pts: ...{zone_anchor-20:.0f} | {zone_anchor:.0f} | {zone_anchor+20:.0f} | {zone_anchor+40:.0f}...</span>
             </div>""", unsafe_allow_html=True)
             
-            # Find zone edges near current price (show relevant range only)
+            # ── SCAN FOR CROSSINGS ──
             relevant_zones = [z for z in zone_grid if abs(z - current_price) <= 65]
             relevant_zones.sort(reverse=True)
             
-            # Scan window: 8:30 AM to 10:00 AM in 5-minute steps
-            # For each structural line, find if/when it crosses each zone edge
             ZONE_PROXIMITY = 2.0
             scan_date = next_date
             scan_times = []
@@ -3243,7 +3257,6 @@ def main():
                         break
                     scan_times.append(datetime.combine(scan_date, time(h, m)))
             
-            # Build all structural lines with their anchor data
             all_struct_lines = []
             for line_data in levels['ascending']:
                 all_struct_lines.append({
@@ -3264,7 +3277,6 @@ def main():
                     'color': '#00e676' if line_data['type'] == 'lowest_wick' else '#69f0ae',
                 })
             
-            # For each zone edge, find crossing times with any structural line
             zone_crossings = {}
             for zone_val in relevant_zones:
                 zone_crossings[zone_val] = []
@@ -3279,75 +3291,125 @@ def main():
                                 'crossing_time': st_time,
                                 'line_value': line_val,
                             })
-                            break  # Found crossing for this line, move to next
+                            break
             
-            zone_rows = ""
-            price_row_inserted = False
+            # ── TRADE SIGNALS FROM ZONE MATCHES ──
+            # Show matched zones as big clear trade cards FIRST
+            matched_zones = [(z, zone_crossings[z]) for z in relevant_zones if zone_crossings.get(z)]
             
-            for zone_val in relevant_zones:
-                crossings = zone_crossings.get(zone_val, [])
+            if matched_zones:
+                st.markdown(f"""
+                <div style="text-align:center;padding:10px 0;margin:10px 0;">
+                    <span style="font-family:Orbitron,monospace;color:#b388ff;font-size:1rem;font-weight:700;">
+                        🎯 {len(matched_zones)} ZONE-LINE MATCH{'ES' if len(matched_zones) > 1 else ''} FOUND
+                    </span>
+                </div>""", unsafe_allow_html=True)
                 
-                # Insert price row between zones
-                if current_price is not None and not price_row_inserted and zone_val < current_price:
-                    zone_rows += '<tr style="background:rgba(0,212,255,0.06);">'
-                    zone_rows += '<td style="padding:12px;color:#00d4ff;font-size:1.2rem;text-align:center;">◆</td>'
-                    zone_rows += f'<td style="padding:12px;color:#00d4ff;font-weight:700;">◉ SPX PRICE</td>'
-                    zone_rows += f'<td style="padding:12px;color:#00d4ff;font-weight:700;text-align:right;font-size:1rem;">{current_price:.2f}</td>'
-                    zone_rows += '<td style="padding:12px;"></td>'
-                    zone_rows += '<td style="padding:12px;"></td>'
-                    zone_rows += '</tr>'
-                    price_row_inserted = True
-                
-                if crossings:
+                for zone_val, crossings in matched_zones:
                     has_asc = any(c['direction'] == 'ascending' for c in crossings)
                     has_desc = any(c['direction'] == 'descending' for c in crossings)
                     
-                    # Build crossing details
-                    cross_details = []
+                    # Build the match explanation
+                    line_names = []
                     for c in crossings:
                         t_str = c['crossing_time'].strftime('%I:%M %p').lstrip('0')
-                        cross_details.append(f"{c['line_short']} @ {t_str}")
-                    cross_text = " | ".join(cross_details)
-                    
-                    # Earliest crossing time
-                    earliest = min(c['crossing_time'] for c in crossings)
-                    time_label = earliest.strftime('%I:%M').lstrip('0')
+                        line_names.append(f"{c['line_short']} reaches {zone_val:.2f} around {t_str}")
+                    match_text = " AND ".join(line_names)
                     
                     if has_asc and has_desc:
-                        zone_signal = "⚡ CONFLUENCE"
-                        zone_color = "#b388ff"
-                        zone_bg = "rgba(179,136,255,0.08)"
+                        trade_icon = "⚡"
+                        trade_signal = "STRONG CONFLUENCE"
+                        trade_action = "Both ascending resistance AND descending support converge at this zone. Watch for a strong reaction either way."
+                        trade_color = "#b388ff"
+                        trade_bg = "rgba(179,136,255,0.06)"
                     elif has_asc:
-                        zone_signal = "🔻 RESISTANCE"
-                        zone_color = "#ff1744"
-                        zone_bg = "rgba(255,23,68,0.06)"
+                        trade_icon = "🔻"
+                        trade_signal = "BUY PUTS"
+                        trade_action = "Ascending line = resistance at this zone edge. Market should reject here and sell off. If price breaks ABOVE and closes above → flips to support → BUY CALLS instead."
+                        trade_color = "#ff1744"
+                        trade_bg = "rgba(255,23,68,0.05)"
                     else:
-                        zone_signal = "🔺 SUPPORT"
-                        zone_color = "#00e676"
-                        zone_bg = "rgba(0,230,118,0.06)"
+                        trade_icon = "🔺"
+                        trade_signal = "BUY CALLS"
+                        trade_action = "Descending line = support at this zone edge. Market should bounce here and rally. If price breaks BELOW and closes below → flips to resistance → BUY PUTS instead."
+                        trade_color = "#00e676"
+                        trade_bg = "rgba(0,230,118,0.05)"
                     
-                    zone_rows += f'<tr style="background:{zone_bg};border-left:4px solid {zone_color};">'
-                    zone_rows += f'<td style="padding:10px 12px;color:{zone_color};font-size:1rem;font-weight:700;text-align:center;">●</td>'
-                    zone_rows += f'<td style="padding:10px 12px;color:{zone_color};font-weight:700;font-size:0.85rem;">{zone_signal}</td>'
-                    zone_rows += f'<td style="padding:10px 12px;color:#ccd6f6;font-weight:700;text-align:right;font-size:0.95rem;">{zone_val:.2f}</td>'
-                    zone_rows += f'<td style="padding:10px 12px;color:#ffd740;font-size:0.75rem;text-align:center;">~{time_label} AM</td>'
-                    zone_rows += f'<td style="padding:10px 12px;color:#5a6a8a;font-size:0.7rem;">{cross_text}</td>'
-                    zone_rows += '</tr>'
-                else:
                     dist_from_price = zone_val - current_price
-                    zone_rows += f'<tr style="border-left:2px solid #1a1a2a;">'
-                    zone_rows += f'<td style="padding:6px 12px;color:#2a3a5a;font-size:0.8rem;text-align:center;">○</td>'
-                    zone_rows += f'<td style="padding:6px 12px;color:#2a3a5a;font-size:0.75rem;">Naked Zone</td>'
-                    zone_rows += f'<td style="padding:6px 12px;color:#3a4a6a;font-weight:600;text-align:right;font-size:0.82rem;">{zone_val:.2f}</td>'
-                    zone_rows += f'<td style="padding:6px 12px;color:#2a3a5a;font-size:0.7rem;text-align:center;">—</td>'
-                    zone_rows += f'<td style="padding:6px 12px;color:#1a2a3a;font-size:0.68rem;">{dist_from_price:+.1f}pt from price</td>'
-                    zone_rows += '</tr>'
+                    above_below = "ABOVE" if dist_from_price > 0 else "BELOW"
+                    
+                    st.markdown(f"""
+                    <div style="background:{trade_bg};border:1px solid {trade_color}30;border-radius:12px;padding:18px 20px;margin:10px 0;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                            <span style="font-size:1.8rem;">{trade_icon}</span>
+                            <span style="font-family:Orbitron,monospace;color:{trade_color};font-size:1.3rem;font-weight:700;">{trade_signal}</span>
+                            <span style="font-family:JetBrains Mono,monospace;color:#ccd6f6;font-size:1.1rem;font-weight:700;">@ {zone_val:.2f}</span>
+                        </div>
+                        <table style="width:100%;font-family:JetBrains Mono,monospace;border-collapse:collapse;">
+                            <tr>
+                                <td style="padding:6px 0;color:#5a6a8a;font-size:0.8rem;width:120px;">Zone Edge:</td>
+                                <td style="padding:6px 0;color:#ccd6f6;font-weight:700;">{zone_val:.2f} ({abs(dist_from_price):.1f}pt {above_below} current price)</td>
+                            </tr>
+                            <tr>
+                                <td style="padding:6px 0;color:#5a6a8a;font-size:0.8rem;">Line Match:</td>
+                                <td style="padding:6px 0;color:{trade_color};font-weight:600;">{match_text}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding:6px 0;color:#5a6a8a;font-size:0.8rem;">Trade Logic:</td>
+                                <td style="padding:6px 0;color:#8892b0;font-size:0.85rem;">{trade_action}</td>
+                            </tr>
+                        </table>
+                    </div>""", unsafe_allow_html=True)
+            else:
+                st.markdown("""
+                <div style="text-align:center;padding:16px;color:#3a4a6a;font-family:Rajdhani,sans-serif;font-size:0.95rem;">
+                    No structural lines land on zone edges in the 8:30-10:00 AM window. All zones are naked (weaker signals).
+                </div>""", unsafe_allow_html=True)
             
-            zone_table = f'<table style="width:100%;border-collapse:collapse;font-family:JetBrains Mono,monospace;">{zone_rows}</table>'
-            st.markdown(zone_table, unsafe_allow_html=True)
-            
-            active_count = sum(1 for z in relevant_zones if zone_crossings.get(z))
-            st.caption(f"Zone anchor: {zone_anchor:.2f} (first bounce) • Scanned 8:30–10:00 AM window • {active_count} active zone confluences")
+            # ── FULL ZONE MAP (collapsible) ──
+            with st.expander("📊 Full Zone Map — All zone edges near price", expanded=False):
+                zone_rows = ""
+                price_row_inserted = False
+                
+                for zone_val in relevant_zones:
+                    crossings = zone_crossings.get(zone_val, [])
+                    
+                    if current_price is not None and not price_row_inserted and zone_val < current_price:
+                        zone_rows += '<tr style="background:rgba(0,212,255,0.06);">'
+                        zone_rows += '<td style="padding:10px 12px;color:#00d4ff;font-size:1.1rem;text-align:center;">◆</td>'
+                        zone_rows += f'<td style="padding:10px 12px;color:#00d4ff;font-weight:700;">◉ SPX PRICE</td>'
+                        zone_rows += f'<td style="padding:10px 12px;color:#00d4ff;font-weight:700;text-align:right;">{current_price:.2f}</td>'
+                        zone_rows += '<td style="padding:10px 12px;"></td>'
+                        zone_rows += '</tr>'
+                        price_row_inserted = True
+                    
+                    if crossings:
+                        has_asc = any(c['direction'] == 'ascending' for c in crossings)
+                        has_desc = any(c['direction'] == 'descending' for c in crossings)
+                        cross_names = ", ".join([c['line_short'] for c in crossings])
+                        
+                        if has_asc and has_desc:
+                            zc = "#b388ff"; zl = "⚡ CONFLUENCE"; zbg = "rgba(179,136,255,0.08)"
+                        elif has_asc:
+                            zc = "#ff1744"; zl = "🔻 PUT"; zbg = "rgba(255,23,68,0.06)"
+                        else:
+                            zc = "#00e676"; zl = "🔺 CALL"; zbg = "rgba(0,230,118,0.06)"
+                        
+                        zone_rows += f'<tr style="background:{zbg};border-left:4px solid {zc};">'
+                        zone_rows += f'<td style="padding:8px 12px;color:{zc};font-weight:700;text-align:center;">●</td>'
+                        zone_rows += f'<td style="padding:8px 12px;color:{zc};font-weight:700;font-size:0.85rem;">{zl} — {cross_names}</td>'
+                        zone_rows += f'<td style="padding:8px 12px;color:#ccd6f6;font-weight:700;text-align:right;">{zone_val:.2f}</td>'
+                        zone_rows += f'<td style="padding:8px 12px;color:#3a4a6a;font-size:0.75rem;">{zone_val - current_price:+.1f}pt</td>'
+                        zone_rows += '</tr>'
+                    else:
+                        zone_rows += f'<tr style="border-left:2px solid #1a1a2a;">'
+                        zone_rows += f'<td style="padding:5px 12px;color:#1a2a3a;text-align:center;">○</td>'
+                        zone_rows += f'<td style="padding:5px 12px;color:#2a3a5a;font-size:0.75rem;">Naked</td>'
+                        zone_rows += f'<td style="padding:5px 12px;color:#3a4a6a;text-align:right;">{zone_val:.2f}</td>'
+                        zone_rows += f'<td style="padding:5px 12px;color:#2a3a5a;font-size:0.7rem;">{zone_val - current_price:+.1f}pt</td>'
+                        zone_rows += '</tr>'
+                
+                st.markdown(f'<table style="width:100%;border-collapse:collapse;font-family:JetBrains Mono,monospace;">{zone_rows}</table>', unsafe_allow_html=True)
         
         # ============================================================
         # LINE LADDER WITH PRICE POSITION
