@@ -2072,6 +2072,19 @@ def main():
     levels = calculate_nine_am_levels(bounces, rejections, highest_wick, lowest_wick, next_day_dt)
     
     # ============================================================
+    # 20-POINT ZONE GRID (from first Globex bounce, 5-7 PM)
+    # ============================================================
+    zone_grid = []
+    zone_anchor = None
+    globex_bounce_val = st.session_state.get('_globex_bounce', 0.0)
+    # Apply ES-SPX offset to convert ES bounce to SPX zone grid
+    es_offset_for_zones = st.session_state.get('global_es_offset', st.session_state.get('_es_offset', 0.0))
+    if globex_bounce_val > 0:
+        zone_anchor = globex_bounce_val - es_offset_for_zones  # Convert to SPX terms
+        for i in range(-10, 11):
+            zone_grid.append(zone_anchor + (i * 20))
+    
+    # ============================================================
     # LIVE PRICE TRACKING
     # ============================================================
     live_price_data = None
@@ -2646,6 +2659,89 @@ def main():
         # ============================================================
         render_section_banner("🎯", "6:00 PM Decision Framework", "Lock your price and map the trade", "#ffd740")
         
+        # ── First Globex Bounce (5-7 PM) — Zone Grid Anchor ──
+        st.markdown("""
+        <div style="background:rgba(179,136,255,0.06);border:1px solid rgba(179,136,255,0.2);
+                    border-radius:10px;padding:12px 16px;margin:8px 0;">
+            <div style="font-family:Orbitron,monospace;color:#b388ff;font-size:0.8rem;font-weight:700;margin-bottom:4px;">
+                🔲 ZONE GRID ANCHOR
+            </div>
+            <div style="font-family:Rajdhani,sans-serif;color:#5a6a8a;font-size:0.82rem;">
+                First bounce (trough) on the 30-min ES line chart between 5:00 - 7:00 PM Globex open. 
+                Auto-detected from yfinance or enter manually.
+            </div>
+        </div>""", unsafe_allow_html=True)
+        
+        # Auto-detect Globex bounce
+        auto_globex_bounce = None
+        col_detect, col_override = st.columns([1, 1])
+        
+        with col_detect:
+            if st.button("🔍 Auto-Detect Globex Bounce", key="detect_globex", use_container_width=True):
+                with st.spinner("Fetching tonight's ES 30-min data..."):
+                    try:
+                        # Fetch today's data (Globex opens at 5 PM today)
+                        today_str = overnight_date_tab2.strftime('%Y-%m-%d')
+                        tomorrow_str = (overnight_date_tab2 + timedelta(days=1)).strftime('%Y-%m-%d')
+                        result = fetch_yfinance_candles(today_str, tomorrow_str)
+                        
+                        if result['ok']:
+                            df = result['data']
+                            # Filter to 5:00 PM - 7:00 PM CT window
+                            globex_start = datetime.combine(overnight_date_tab2, time(17, 0))
+                            globex_end = datetime.combine(overnight_date_tab2, time(19, 0))
+                            globex_df = df[(df['datetime'] >= globex_start) & (df['datetime'] <= globex_end)]
+                            
+                            if len(globex_df) >= 2:
+                                closes = globex_df['close'].values
+                                times = globex_df['datetime'].values
+                                
+                                # Find first trough (close[i] < close[i-1] and close[i] < close[i+1])
+                                found_bounce = None
+                                for i in range(1, len(closes) - 1):
+                                    if closes[i] <= closes[i-1] and closes[i] <= closes[i+1]:
+                                        found_bounce = {'price': float(closes[i]), 'time': pd.Timestamp(times[i]).to_pydatetime()}
+                                        break
+                                
+                                # If no classic trough found, use the lowest close in the window
+                                if not found_bounce:
+                                    min_idx = closes.argmin()
+                                    found_bounce = {'price': float(closes[min_idx]), 'time': pd.Timestamp(times[min_idx]).to_pydatetime()}
+                                
+                                auto_globex_bounce = found_bounce['price']
+                                st.session_state['_globex_bounce'] = auto_globex_bounce
+                                st.session_state['_globex_bounce_time'] = found_bounce['time']
+                                st.success(f"✅ First Globex bounce: **{auto_globex_bounce:.2f}** @ {found_bounce['time'].strftime('%I:%M %p')}")
+                            else:
+                                st.warning(f"Only {len(globex_df)} candles in 5-7 PM window. Globex may not have opened yet.")
+                        else:
+                            st.error(f"Fetch failed: {result.get('error', 'Unknown')}")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+        
+        with col_override:
+            globex_bounce = st.number_input(
+                "Override / Manual Entry (ES)",
+                value=st.session_state.get('_globex_bounce', 0.0),
+                step=0.25, format="%.2f",
+                key="globex_bounce_input",
+                help="Override auto-detection or enter manually if Globex hasn't opened yet"
+            )
+            if globex_bounce > 0:
+                st.session_state['_globex_bounce'] = globex_bounce
+        
+        # Show current zone anchor status
+        if st.session_state.get('_globex_bounce', 0) > 0:
+            bounce_val = st.session_state['_globex_bounce']
+            bounce_time = st.session_state.get('_globex_bounce_time', None)
+            time_str = f" @ {bounce_time.strftime('%I:%M %p')}" if bounce_time else ""
+            st.markdown(f"""
+            <div style="background:rgba(179,136,255,0.04);border-left:3px solid #b388ff;padding:8px 14px;margin:4px 0;border-radius:0 8px 8px 0;">
+                <span style="color:#b388ff;font-weight:700;">Zone Anchor:</span>
+                <span style="color:#ccd6f6;font-weight:700;font-size:1rem;"> {bounce_val:.2f}</span>
+                <span style="color:#5a6a8a;font-size:0.8rem;">{time_str} → Zones: ...{bounce_val-20:.0f} | {bounce_val:.0f} | {bounce_val+20:.0f} | {bounce_val+40:.0f}...</span>
+            </div>""", unsafe_allow_html=True)
+        
         # Auto-fill from live price if available
         asian_default = 6870.0
         if live_mode and live_price_data and live_price_data.get('ok'):
@@ -3050,6 +3146,136 @@ def main():
         # Signal display
         sig_color = '#00e676' if signal_class == 'bull' else '#ff1744' if signal_class == 'bear' else '#ffd740'
         render_signal_display(signal, signal_detail, signal_class)
+        
+        # ============================================================
+        # 20-POINT ZONE GRID — Confluence with Structural Lines
+        # ============================================================
+        if zone_grid and zone_anchor and ny_ladder:
+            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+            render_section_banner("🔲", "20-Point Zone Grid", f"Anchored from first bounce @ {zone_anchor:.2f} • ±20pt increments", "#b388ff")
+            
+            # Find zone edges near current price (show relevant range only)
+            relevant_zones = [z for z in zone_grid if abs(z - current_price) <= 65]
+            relevant_zones.sort(reverse=True)
+            
+            # Scan window: 8:30 AM to 10:00 AM in 5-minute steps
+            # For each structural line, find if/when it crosses each zone edge
+            ZONE_PROXIMITY = 2.0
+            scan_date = next_date
+            scan_times = []
+            for h in range(8, 11):
+                for m in range(0, 60, 5):
+                    if h == 8 and m < 30:
+                        continue
+                    if h == 10 and m > 0:
+                        break
+                    scan_times.append(datetime.combine(scan_date, time(h, m)))
+            
+            # Build all structural lines with their anchor data
+            all_struct_lines = []
+            for line_data in levels['ascending']:
+                all_struct_lines.append({
+                    'anchor_price': line_data['anchor_price'],
+                    'anchor_time': line_data['anchor_time'],
+                    'direction': 'ascending',
+                    'type': line_data['type'],
+                    'short': f"{'HW' if line_data['type'] == 'highest_wick' else 'B'} ↗",
+                    'color': '#ff1744' if line_data['type'] == 'highest_wick' else '#ff5252',
+                })
+            for line_data in levels['descending']:
+                all_struct_lines.append({
+                    'anchor_price': line_data['anchor_price'],
+                    'anchor_time': line_data['anchor_time'],
+                    'direction': 'descending',
+                    'type': line_data['type'],
+                    'short': f"{'LW' if line_data['type'] == 'lowest_wick' else 'R'} ↘",
+                    'color': '#00e676' if line_data['type'] == 'lowest_wick' else '#69f0ae',
+                })
+            
+            # For each zone edge, find crossing times with any structural line
+            zone_crossings = {}
+            for zone_val in relevant_zones:
+                zone_crossings[zone_val] = []
+                for sl in all_struct_lines:
+                    for st_time in scan_times:
+                        line_val = calculate_line_value(sl['anchor_price'], sl['anchor_time'], st_time, sl['direction'])
+                        if abs(line_val - zone_val) <= ZONE_PROXIMITY:
+                            zone_crossings[zone_val].append({
+                                'line_short': sl['short'],
+                                'direction': sl['direction'],
+                                'color': sl['color'],
+                                'crossing_time': st_time,
+                                'line_value': line_val,
+                            })
+                            break  # Found crossing for this line, move to next
+            
+            zone_rows = ""
+            price_row_inserted = False
+            
+            for zone_val in relevant_zones:
+                crossings = zone_crossings.get(zone_val, [])
+                
+                # Insert price row between zones
+                if current_price is not None and not price_row_inserted and zone_val < current_price:
+                    zone_rows += '<tr style="background:rgba(0,212,255,0.06);">'
+                    zone_rows += '<td style="padding:12px;color:#00d4ff;font-size:1.2rem;text-align:center;">◆</td>'
+                    zone_rows += f'<td style="padding:12px;color:#00d4ff;font-weight:700;">◉ SPX PRICE</td>'
+                    zone_rows += f'<td style="padding:12px;color:#00d4ff;font-weight:700;text-align:right;font-size:1rem;">{current_price:.2f}</td>'
+                    zone_rows += '<td style="padding:12px;"></td>'
+                    zone_rows += '<td style="padding:12px;"></td>'
+                    zone_rows += '</tr>'
+                    price_row_inserted = True
+                
+                if crossings:
+                    has_asc = any(c['direction'] == 'ascending' for c in crossings)
+                    has_desc = any(c['direction'] == 'descending' for c in crossings)
+                    
+                    # Build crossing details
+                    cross_details = []
+                    for c in crossings:
+                        t_str = c['crossing_time'].strftime('%I:%M %p').lstrip('0')
+                        cross_details.append(f"{c['line_short']} @ {t_str}")
+                    cross_text = " | ".join(cross_details)
+                    
+                    # Earliest crossing time
+                    earliest = min(c['crossing_time'] for c in crossings)
+                    time_label = earliest.strftime('%I:%M').lstrip('0')
+                    
+                    if has_asc and has_desc:
+                        zone_signal = "⚡ CONFLUENCE"
+                        zone_color = "#b388ff"
+                        zone_bg = "rgba(179,136,255,0.08)"
+                    elif has_asc:
+                        zone_signal = "🔻 RESISTANCE"
+                        zone_color = "#ff1744"
+                        zone_bg = "rgba(255,23,68,0.06)"
+                    else:
+                        zone_signal = "🔺 SUPPORT"
+                        zone_color = "#00e676"
+                        zone_bg = "rgba(0,230,118,0.06)"
+                    
+                    zone_rows += f'<tr style="background:{zone_bg};border-left:4px solid {zone_color};">'
+                    zone_rows += f'<td style="padding:10px 12px;color:{zone_color};font-size:1rem;font-weight:700;text-align:center;">●</td>'
+                    zone_rows += f'<td style="padding:10px 12px;color:{zone_color};font-weight:700;font-size:0.85rem;">{zone_signal}</td>'
+                    zone_rows += f'<td style="padding:10px 12px;color:#ccd6f6;font-weight:700;text-align:right;font-size:0.95rem;">{zone_val:.2f}</td>'
+                    zone_rows += f'<td style="padding:10px 12px;color:#ffd740;font-size:0.75rem;text-align:center;">~{time_label} AM</td>'
+                    zone_rows += f'<td style="padding:10px 12px;color:#5a6a8a;font-size:0.7rem;">{cross_text}</td>'
+                    zone_rows += '</tr>'
+                else:
+                    dist_from_price = zone_val - current_price
+                    zone_rows += f'<tr style="border-left:2px solid #1a1a2a;">'
+                    zone_rows += f'<td style="padding:6px 12px;color:#2a3a5a;font-size:0.8rem;text-align:center;">○</td>'
+                    zone_rows += f'<td style="padding:6px 12px;color:#2a3a5a;font-size:0.75rem;">Naked Zone</td>'
+                    zone_rows += f'<td style="padding:6px 12px;color:#3a4a6a;font-weight:600;text-align:right;font-size:0.82rem;">{zone_val:.2f}</td>'
+                    zone_rows += f'<td style="padding:6px 12px;color:#2a3a5a;font-size:0.7rem;text-align:center;">—</td>'
+                    zone_rows += f'<td style="padding:6px 12px;color:#1a2a3a;font-size:0.68rem;">{dist_from_price:+.1f}pt from price</td>'
+                    zone_rows += '</tr>'
+            
+            zone_table = f'<table style="width:100%;border-collapse:collapse;font-family:JetBrains Mono,monospace;">{zone_rows}</table>'
+            st.markdown(zone_table, unsafe_allow_html=True)
+            
+            active_count = sum(1 for z in relevant_zones if zone_crossings.get(z))
+            st.caption(f"Zone anchor: {zone_anchor:.2f} (first bounce) • Scanned 8:30–10:00 AM window • {active_count} active zone confluences")
         
         # ============================================================
         # LINE LADDER WITH PRICE POSITION
