@@ -123,8 +123,14 @@ st.markdown("""
     .stButton > button:hover { border-color: var(--cyan) !important; }
     .stExpander { border: 1px solid var(--border) !important; border-radius: 12px !important; }
     
+    /* SIDEBAR */
+    [data-testid="stSidebar"] > div:first-child { padding-top: 1rem; }
+    [data-testid="stSidebar"] label { color: #8892b0 !important; }
+    [data-testid="stSidebar"] .stMarkdown { color: #8892b0; }
+    [data-testid="stSidebar"] h3, [data-testid="stSidebar"] h4 { color: #e2e8f0 !important; }
+    
     /* HIDE */
-    #MainMenu, header, footer, .stDeployButton { display: none !important; }
+    #MainMenu, footer, .stDeployButton { display: none !important; }
     div[data-testid="stDecoration"] { display: none !important; }
     
     /* DIVIDER */
