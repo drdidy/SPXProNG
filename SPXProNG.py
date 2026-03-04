@@ -5,531 +5,139 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta, time
 import json
+import streamlit.components.v1 as components
 
 # ============================================================
-# SPX PROPHET NEXT GEN v1.0
-# Proprietary Market Structure System by David
-# Built on the Proprietary Rate Line Projection Framework
+# SPX PROPHET NEXT GEN v2.0
+# Proprietary Market Structure System
 # ============================================================
 
 st.set_page_config(
-    page_title="SPX Prophet Next Gen",
-    page_icon="📈",
+    page_title="SPX Prophet",
+    page_icon="⚡",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # ============================================================
-# CUSTOM STYLING — Mission Control Terminal Design
+# DESIGN SYSTEM — Luxury Dark Terminal
 # ============================================================
 st.markdown("""
 <style>
-    /* ═══════════════════════════════════════════════════════════
-       FONTS — Google Fonts: Orbitron (display), JetBrains Mono (data), Rajdhani (body)
-       ═══════════════════════════════════════════════════════════ */
-    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Rajdhani:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@300;400;500;600;700;800&family=Rajdhani:wght@300;400;500;600;700&display=swap');
     
-    /* ═══════════════════════════════════════════════════════════
-       ANIMATIONS — Pulse, glow, fade-in, price flash
-       ═══════════════════════════════════════════════════════════ */
-    @keyframes pulse-glow {
-        0%, 100% { box-shadow: 0 0 8px rgba(0,212,255,0.15), inset 0 0 8px rgba(0,212,255,0.05); }
-        50% { box-shadow: 0 0 20px rgba(0,212,255,0.3), inset 0 0 15px rgba(0,212,255,0.08); }
+    :root {
+        --bg: #060910;
+        --bg-card: rgba(11, 15, 26, 0.9);
+        --bg-alt: rgba(14, 19, 34, 0.85);
+        --border: rgba(255,255,255,0.04);
+        --border-h: rgba(255,255,255,0.1);
+        --t1: #e2e8f0;
+        --t2: #8892b0;
+        --t3: #3d4f6f;
+        --cyan: #00d4ff;
+        --green: #00e676;
+        --red: #ff1744;
+        --gold: #ffd740;
+        --purple: #b388ff;
     }
-    @keyframes pulse-border-bull {
-        0%, 100% { border-color: rgba(0,230,118,0.4); box-shadow: 0 0 15px rgba(0,230,118,0.1); }
-        50% { border-color: rgba(0,230,118,0.9); box-shadow: 0 0 30px rgba(0,230,118,0.25); }
-    }
-    @keyframes pulse-border-bear {
-        0%, 100% { border-color: rgba(255,23,68,0.4); box-shadow: 0 0 15px rgba(255,23,68,0.1); }
-        50% { border-color: rgba(255,23,68,0.9); box-shadow: 0 0 30px rgba(255,23,68,0.25); }
-    }
-    @keyframes pulse-border-neutral {
-        0%, 100% { border-color: rgba(255,215,64,0.4); box-shadow: 0 0 15px rgba(255,215,64,0.1); }
-        50% { border-color: rgba(255,215,64,0.9); box-shadow: 0 0 30px rgba(255,215,64,0.2); }
-    }
-    @keyframes live-dot {
-        0%, 100% { opacity: 1; transform: scale(1); }
-        50% { opacity: 0.4; transform: scale(0.7); }
-    }
-    @keyframes fade-in-up {
-        from { opacity: 0; transform: translateY(12px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    @keyframes price-flash {
-        0% { background: rgba(0,212,255,0.15); }
-        100% { background: transparent; }
-    }
-    @keyframes shimmer {
-        0% { background-position: -200% 0; }
-        100% { background-position: 200% 0; }
-    }
-    @keyframes gradient-text {
-        0% { background-position: 0% 50%; }
-        50% { background-position: 100% 50%; }
-        100% { background-position: 0% 50%; }
-    }
+
+    .stApp { background: var(--bg) !important; }
+    .block-container { padding-top: 0.8rem !important; max-width: 1100px !important; }
+    [data-testid="stSidebar"] { background: #080c18 !important; border-right: 1px solid var(--border) !important; }
     
-    /* ═══════════════════════════════════════════════════════════
-       APP SHELL — Deep space background with subtle noise
-       ═══════════════════════════════════════════════════════════ */
-    .stApp {
-        background: 
-            radial-gradient(ellipse at 20% 50%, rgba(0,212,255,0.03) 0%, transparent 50%),
-            radial-gradient(ellipse at 80% 20%, rgba(123,47,247,0.03) 0%, transparent 50%),
-            radial-gradient(ellipse at 50% 80%, rgba(255,107,53,0.02) 0%, transparent 50%),
-            linear-gradient(180deg, #050810 0%, #080d16 40%, #0a0f1a 100%);
-    }
+    /* HEADER */
+    .app-header { text-align: center; padding: 1.6rem 0 0.8rem; border-bottom: 1px solid var(--border); margin-bottom: 1rem; }
+    .app-title { font-family: 'Outfit'; font-weight: 800; font-size: 1.7rem; letter-spacing: 8px; text-transform: uppercase; background: linear-gradient(135deg, #e2e8f0, #4a5a7a); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .app-sub { font-family: 'JetBrains Mono'; font-size: 0.6rem; color: var(--t3); letter-spacing: 5px; text-transform: uppercase; margin-top: 2px; }
     
-    /* ═══════════════════════════════════════════════════════════
-       HIDE STREAMLIT CHROME — Clean terminal look
-       ═══════════════════════════════════════════════════════════ */
-    #MainMenu { visibility: visible; }
-    footer { visibility: hidden; }
-    header[data-testid="stHeader"] { background: transparent; }
-    div[data-testid="stDecoration"] { display: none; }
+    /* SECTIONS */
+    .sec { display: flex; align-items: center; gap: 10px; padding: 10px 0; margin: 16px 0 6px; border-bottom: 1px solid var(--border); }
+    .sec-title { font-family: 'Outfit'; font-weight: 700; font-size: 0.95rem; color: var(--t1); }
+    .sec-sub { font-family: 'JetBrains Mono'; font-size: 0.6rem; color: var(--t3); margin-left: auto; }
     
-    /* ═══════════════════════════════════════════════════════════
-       SCROLLBAR — Thin glowing accent
-       ═══════════════════════════════════════════════════════════ */
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: #060910; }
-    ::-webkit-scrollbar-thumb { 
-        background: linear-gradient(180deg, #00d4ff44, #7b2ff744); 
-        border-radius: 3px; 
-    }
-    ::-webkit-scrollbar-thumb:hover { background: #00d4ff88; }
+    /* KPI CARDS */
+    .kpi-row { display: grid; gap: 10px; margin: 10px 0; }
+    .kpi { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; text-align: center; }
+    .kpi:hover { border-color: var(--border-h); }
+    .kpi-label { font-family: 'JetBrains Mono'; font-size: 0.55rem; color: var(--t3); letter-spacing: 3px; text-transform: uppercase; }
+    .kpi-val { font-family: 'JetBrains Mono'; font-weight: 700; font-size: 1.25rem; margin-top: 4px; }
+    .kpi-sub { font-family: 'Rajdhani'; font-size: 0.7rem; color: var(--t3); margin-top: 2px; }
     
-    /* ═══════════════════════════════════════════════════════════
-       SIDEBAR — Cockpit control panel
-       ═══════════════════════════════════════════════════════════ */
-    div[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #060910 0%, #0a0f1a 50%, #080d16 100%);
-        border-right: 1px solid rgba(0,212,255,0.1);
-    }
-    div[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
-        font-family: 'Rajdhani', sans-serif;
-    }
+    /* SIGNAL BANNER */
+    .sig { border-radius: 16px; padding: 28px; margin: 14px 0; text-align: center; border: 1px solid; position: relative; overflow: hidden; }
+    .sig::after { content: ''; position: absolute; top: 50%; left: 50%; width: 200%; height: 200%; transform: translate(-50%,-50%); border-radius: 50%; pointer-events: none; }
+    .sig.bull { border-color: rgba(0,230,118,0.25); background: rgba(0,230,118,0.03); }
+    .sig.bull::after { background: radial-gradient(circle, rgba(0,230,118,0.06), transparent 60%); }
+    .sig.bear { border-color: rgba(255,23,68,0.25); background: rgba(255,23,68,0.03); }
+    .sig.bear::after { background: radial-gradient(circle, rgba(255,23,68,0.06), transparent 60%); }
+    .sig.neutral { border-color: rgba(255,215,64,0.25); background: rgba(255,215,64,0.03); }
+    .sig.neutral::after { background: radial-gradient(circle, rgba(255,215,64,0.06), transparent 60%); }
+    .sig-dir { font-family: 'Outfit'; font-weight: 800; font-size: 1.6rem; letter-spacing: 3px; position: relative; z-index: 1; }
+    .sig-detail { font-family: 'Rajdhani'; font-size: 0.85rem; color: var(--t2); margin-top: 8px; position: relative; z-index: 1; }
     
-    /* ═══════════════════════════════════════════════════════════
-       TABS — Cockpit segment buttons
-       ═══════════════════════════════════════════════════════════ */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 4px;
-        background: rgba(6,9,16,0.8);
-        border: 1px solid rgba(0,212,255,0.08);
-        border-radius: 10px;
-        padding: 4px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        font-family: 'Orbitron', monospace;
-        font-size: 0.72rem;
-        letter-spacing: 1.5px;
-        text-transform: uppercase;
-        border-radius: 8px;
-        padding: 8px 16px;
-        color: #5a6a8a;
-        transition: all 0.3s ease;
-    }
-    .stTabs [data-baseweb="tab"]:hover {
-        color: #ccd6f6;
-        background: rgba(0,212,255,0.06);
-    }
-    .stTabs [aria-selected="true"] {
-        color: #00d4ff !important;
-        background: rgba(0,212,255,0.08) !important;
-        border-bottom: 2px solid #00d4ff !important;
-    }
+    /* TRADE CARD */
+    .tc { background: var(--bg-card); border-radius: 16px; border: 1px solid var(--border); overflow: hidden; margin: 12px 0; }
+    .tc-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 22px; border-bottom: 1px solid var(--border); }
+    .tc-title { font-family: 'Outfit'; font-weight: 800; font-size: 1.15rem; letter-spacing: 2px; }
+    .tc-meta { font-family: 'JetBrains Mono'; font-size: 0.65rem; color: var(--t3); }
+    .tc-grid { display: grid; grid-template-columns: repeat(3, 1fr); }
+    .tc-cell { text-align: center; padding: 16px; border-right: 1px solid var(--border); }
+    .tc-cell:last-child { border-right: none; }
+    .tc-cell-label { font-family: 'JetBrains Mono'; font-size: 0.55rem; color: var(--t3); letter-spacing: 2px; text-transform: uppercase; }
+    .tc-cell-val { font-family: 'JetBrains Mono'; font-weight: 700; font-size: 1.15rem; margin-top: 4px; }
+    .tc-cell-sub { font-family: 'JetBrains Mono'; font-size: 0.62rem; color: var(--t3); margin-top: 2px; }
     
-    /* ═══════════════════════════════════════════════════════════
-       HEADER — Animated gradient title
-       ═══════════════════════════════════════════════════════════ */
-    .main-header {
-        font-family: 'Orbitron', monospace;
-        font-size: 2.4rem;
-        font-weight: 800;
-        background: linear-gradient(135deg, #00d4ff, #7b2ff7, #ff6b35, #00d4ff);
-        background-size: 300% 300%;
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        text-align: center;
-        padding: 8px 0 4px 0;
-        letter-spacing: 4px;
-        text-transform: uppercase;
-        animation: gradient-text 6s ease infinite;
-    }
+    /* CONFLUENCE */
+    .cf-row { display: flex; align-items: center; gap: 10px; padding: 8px 14px; margin: 3px 0; background: rgba(255,255,255,0.015); border-radius: 10px; border-left: 3px solid; }
+    .cf-name { font-family: 'Rajdhani'; font-weight: 600; min-width: 110px; font-size: 0.85rem; }
+    .cf-detail { font-family: 'JetBrains Mono'; font-size: 0.72rem; color: var(--t2); }
     
-    .sub-header {
-        font-family: 'Rajdhani', sans-serif;
-        color: #3a4a6a;
-        text-align: center;
-        font-size: 0.85rem;
-        letter-spacing: 6px;
-        text-transform: uppercase;
-        margin-bottom: 8px;
-    }
+    /* LONDON SWEEP BOX */
+    .london { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 16px 20px; margin: 10px 0; }
+    .london-label { font-family: 'JetBrains Mono'; font-size: 0.6rem; color: var(--t3); letter-spacing: 3px; text-transform: uppercase; }
+    .london-val { font-family: 'JetBrains Mono'; font-weight: 600; font-size: 0.82rem; margin-top: 6px; line-height: 1.5; }
     
-    /* ═══════════════════════════════════════════════════════════
-       LIVE STATUS BAR — Full width indicator
-       ═══════════════════════════════════════════════════════════ */
-    .live-bar {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 12px;
-        background: rgba(0,212,255,0.04);
-        border: 1px solid rgba(0,212,255,0.1);
-        border-radius: 10px;
-        padding: 10px 20px;
-        margin: 8px 0 16px 0;
-        animation: fade-in-up 0.5s ease;
-    }
-    .live-dot {
-        width: 8px; height: 8px;
-        background: #ff1744;
-        border-radius: 50%;
-        animation: live-dot 1.5s ease-in-out infinite;
-    }
-    .live-dot.active {
-        background: #00e676;
-    }
+    /* RULES BOX */
+    .rules { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 18px 22px; margin: 12px 0; }
+    .rules-title { font-family: 'Outfit'; font-weight: 700; font-size: 0.8rem; color: var(--gold); letter-spacing: 2px; margin-bottom: 10px; }
+    .rules-body { font-family: 'JetBrains Mono'; font-size: 0.72rem; color: var(--t2); line-height: 2; }
     
-    /* ═══════════════════════════════════════════════════════════
-       METRIC CARDS — Glassmorphism with glow
-       ═══════════════════════════════════════════════════════════ */
-    .metric-card {
-        background: linear-gradient(145deg, 
-            rgba(14,20,36,0.95) 0%, 
-            rgba(10,15,26,0.98) 100%);
-        border: 1px solid rgba(30,45,74,0.5);
-        border-radius: 14px;
-        padding: 22px 16px;
-        margin: 8px 0;
-        box-shadow: 
-            0 4px 24px rgba(0,0,0,0.4),
-            0 1px 3px rgba(0,212,255,0.05);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
-        min-height: 140px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        text-align: center;
-        animation: fade-in-up 0.4s ease;
-        transition: border-color 0.3s ease, box-shadow 0.3s ease;
-    }
-    .metric-card:hover {
-        border-color: rgba(0,212,255,0.3);
-        box-shadow: 
-            0 8px 32px rgba(0,0,0,0.5),
-            0 0 20px rgba(0,212,255,0.08);
-    }
-    .metric-card.glow-live {
-        animation: pulse-glow 3s ease-in-out infinite;
-    }
+    /* PREMIUM SCENARIOS */
+    .sc-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 10px 0; }
+    .sc { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 14px; text-align: center; }
+    .sc-label { font-family: 'JetBrains Mono'; font-size: 0.55rem; letter-spacing: 2px; text-transform: uppercase; }
+    .sc-premium { font-family: 'JetBrains Mono'; font-weight: 700; font-size: 1.1rem; margin-top: 4px; }
+    .sc-pnl { font-family: 'JetBrains Mono'; font-size: 0.7rem; margin-top: 4px; }
     
-    .metric-label {
-        font-family: 'Rajdhani', sans-serif;
-        color: #3a4a6a;
-        font-size: 0.75rem;
-        text-transform: uppercase;
-        letter-spacing: 2.5px;
-        margin-bottom: 4px;
-    }
+    /* TABS */
+    .stTabs [data-baseweb="tab-list"] { gap: 2px; border-bottom: 1px solid var(--border) !important; }
+    .stTabs [data-baseweb="tab"] { font-family: 'JetBrains Mono' !important; font-size: 0.72rem !important; letter-spacing: 1.5px !important; padding: 10px 22px !important; background: transparent !important; color: var(--t3) !important; border-radius: 10px 10px 0 0 !important; }
+    .stTabs [aria-selected="true"] { background: var(--bg-card) !important; color: var(--t1) !important; border: 1px solid var(--border) !important; border-bottom: none !important; }
     
-    .metric-value-bull {
-        font-family: 'JetBrains Mono', monospace;
-        color: #00e676;
-        font-size: 1.7rem;
-        font-weight: 700;
-        text-shadow: 0 0 20px rgba(0,230,118,0.2);
-    }
+    /* INPUTS */
+    .stNumberInput > div > div > input, .stTextInput > div > div > input { background: var(--bg-card) !important; border: 1px solid var(--border) !important; color: var(--t1) !important; font-family: 'JetBrains Mono' !important; border-radius: 10px !important; }
+    .stSelectbox > div > div { background: var(--bg-card) !important; border-radius: 10px !important; }
+    label { font-family: 'Rajdhani' !important; color: var(--t2) !important; }
+    .stButton > button { background: var(--bg-card) !important; border: 1px solid var(--border-h) !important; color: var(--t1) !important; font-family: 'JetBrains Mono' !important; font-size: 0.75rem !important; border-radius: 10px !important; letter-spacing: 1px !important; }
+    .stButton > button:hover { border-color: var(--cyan) !important; }
+    .stExpander { border: 1px solid var(--border) !important; border-radius: 12px !important; }
     
-    .metric-value-bear {
-        font-family: 'JetBrains Mono', monospace;
-        color: #ff1744;
-        font-size: 1.7rem;
-        font-weight: 700;
-        text-shadow: 0 0 20px rgba(255,23,68,0.2);
-    }
+    /* HIDE */
+    #MainMenu, header, footer, .stDeployButton { display: none !important; }
+    div[data-testid="stDecoration"] { display: none !important; }
     
-    .metric-value-neutral {
-        font-family: 'JetBrains Mono', monospace;
-        color: #00d4ff;
-        font-size: 1.7rem;
-        font-weight: 700;
-        text-shadow: 0 0 20px rgba(0,212,255,0.2);
-    }
+    /* DIVIDER */
+    .divider { height: 1px; background: var(--border); margin: 16px 0; }
     
-    /* ═══════════════════════════════════════════════════════════
-       SIGNAL BOXES — Animated glow borders
-       ═══════════════════════════════════════════════════════════ */
-    .signal-box-bull {
-        background: linear-gradient(145deg, rgba(0,46,26,0.6) 0%, rgba(10,15,26,0.95) 100%);
-        border: 2px solid rgba(0,230,118,0.4);
-        border-radius: 14px;
-        padding: 24px;
-        text-align: center;
-        animation: pulse-border-bull 3s ease-in-out infinite, fade-in-up 0.5s ease;
-    }
-    
-    .signal-box-bear {
-        background: linear-gradient(145deg, rgba(46,10,10,0.6) 0%, rgba(10,15,26,0.95) 100%);
-        border: 2px solid rgba(255,23,68,0.4);
-        border-radius: 14px;
-        padding: 24px;
-        text-align: center;
-        animation: pulse-border-bear 3s ease-in-out infinite, fade-in-up 0.5s ease;
-    }
-    
-    .signal-box-neutral {
-        background: linear-gradient(145deg, rgba(26,26,46,0.6) 0%, rgba(10,15,26,0.95) 100%);
-        border: 2px solid rgba(255,215,64,0.4);
-        border-radius: 14px;
-        padding: 24px;
-        text-align: center;
-        animation: pulse-border-neutral 3s ease-in-out infinite, fade-in-up 0.5s ease;
-    }
-    
-    /* ═══════════════════════════════════════════════════════════
-       CONFLUENCE — Score display
-       ═══════════════════════════════════════════════════════════ */
-    .confluence-high {
-        font-family: 'Orbitron', monospace;
-        color: #00e676;
-        font-size: 2.2rem;
-        text-shadow: 0 0 30px rgba(0,230,118,0.3);
-    }
-    .confluence-med {
-        font-family: 'Orbitron', monospace;
-        color: #ffd740;
-        font-size: 2.2rem;
-        text-shadow: 0 0 30px rgba(255,215,64,0.3);
-    }
-    .confluence-low {
-        font-family: 'Orbitron', monospace;
-        color: #ff1744;
-        font-size: 2.2rem;
-        text-shadow: 0 0 30px rgba(255,23,68,0.3);
-    }
-    
-    /* ═══════════════════════════════════════════════════════════
-       TRADE CARD — Premium glassmorphism with direction glow
-       ═══════════════════════════════════════════════════════════ */
-    .trade-card {
-        background: linear-gradient(145deg, 
-            rgba(14,20,36,0.95) 0%, 
-            rgba(8,13,22,0.98) 100%);
-        border-radius: 16px;
-        padding: 24px;
-        margin: 12px 0;
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        animation: fade-in-up 0.5s ease;
-    }
-    .trade-card-bull {
-        border: 2px solid rgba(0,230,118,0.25);
-        box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 0 40px rgba(0,230,118,0.06);
-    }
-    .trade-card-bear {
-        border: 2px solid rgba(255,82,82,0.25);
-        box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 0 40px rgba(255,82,82,0.06);
-    }
-    
-    /* ═══════════════════════════════════════════════════════════
-       LADDER ROWS — Hover highlight
-       ═══════════════════════════════════════════════════════════ */
-    .ladder-row {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 8px 14px;
-        margin: 2px 0;
-        border-radius: 0 8px 8px 0;
-        transition: all 0.2s ease;
-    }
-    .ladder-row:hover {
-        transform: translateX(4px);
-        filter: brightness(1.3);
-    }
-    
-    /* ═══════════════════════════════════════════════════════════
-       SECTION DIVIDER — Subtle gradient line
-       ═══════════════════════════════════════════════════════════ */
-    .section-divider {
-        border: none;
-        height: 1px;
-        background: linear-gradient(90deg, transparent, rgba(0,212,255,0.15), transparent);
-        margin: 24px 0;
-    }
-    
-    /* ═══════════════════════════════════════════════════════════
-       PROP ACCOUNT CARDS
-       ═══════════════════════════════════════════════════════════ */
-    .prop-account {
-        background: linear-gradient(145deg, rgba(14,20,36,0.9) 0%, rgba(10,15,26,0.95) 100%);
-        border: 1px solid rgba(30,45,74,0.4);
-        border-radius: 14px;
-        padding: 16px;
-        margin: 6px 0;
-        transition: border-color 0.3s ease;
-    }
-    .prop-account:hover {
-        border-color: rgba(0,212,255,0.2);
-    }
-    
-    /* ═══════════════════════════════════════════════════════════
-       BUTTONS — Styled Streamlit buttons
-       ═══════════════════════════════════════════════════════════ */
-    .stButton > button {
-        font-family: 'Rajdhani', sans-serif !important;
-        letter-spacing: 1px;
-        text-transform: uppercase;
-        font-weight: 600;
-        transition: all 0.3s ease;
-        border: 1px solid rgba(0,212,255,0.2) !important;
-        background: rgba(0,212,255,0.06) !important;
-    }
-    .stButton > button:hover {
-        border-color: rgba(0,212,255,0.5) !important;
-        box-shadow: 0 0 20px rgba(0,212,255,0.15);
-        background: rgba(0,212,255,0.12) !important;
-    }
-    
-    /* ═══════════════════════════════════════════════════════════
-       INPUTS — Number inputs, selectboxes
-       ═══════════════════════════════════════════════════════════ */
-    .stNumberInput input, .stTextInput input, .stSelectbox select {
-        font-family: 'JetBrains Mono', monospace !important;
-    }
-    
-    /* ═══════════════════════════════════════════════════════════
-       SCENARIO GRID — Premium projection cards
-       ═══════════════════════════════════════════════════════════ */
-    .scenario-card {
-        background: linear-gradient(145deg, rgba(14,20,36,0.9) 0%, rgba(10,15,26,0.95) 100%);
-        border-radius: 12px;
-        padding: 14px;
-        text-align: center;
-        transition: all 0.3s ease;
-    }
-    .scenario-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 24px rgba(0,0,0,0.3);
-    }
-    
-    /* ═══════════════════════════════════════════════════════════
-       PRICE MARKER — Current price in ladder
-       ═══════════════════════════════════════════════════════════ */
-    .price-marker {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        padding: 8px 14px;
-        margin: 5px 0;
-        border-radius: 10px;
-        animation: fade-in-up 0.4s ease;
-        position: relative;
-        overflow: hidden;
-    }
-    .price-marker::before {
-        content: '';
-        position: absolute;
-        top: 0; left: -200%; right: -200%; bottom: 0;
-        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent);
-        animation: shimmer 3s ease-in-out infinite;
-    }
-    
-    /* ═══════════════════════════════════════════════════════════
-       RULES BOX — Session rules with left accent
-       ═══════════════════════════════════════════════════════════ */
-    .rules-box {
-        background: linear-gradient(145deg, rgba(14,20,36,0.9) 0%, rgba(10,15,26,0.95) 100%);
-        border: 1px solid rgba(30,45,74,0.4);
-        border-left: 3px solid #ffd740;
-        border-radius: 0 14px 14px 0;
-        padding: 18px 20px;
-        margin: 12px 0;
-    }
-    
-    /* ═══════════════════════════════════════════════════════════
-       QUILL EDITOR — Dark theme override
-       ═══════════════════════════════════════════════════════════ */
-    .ql-toolbar.ql-snow {
-        background: #0c1220 !important;
-        border-color: rgba(30,45,74,0.5) !important;
-        border-radius: 10px 10px 0 0 !important;
-    }
-    .ql-toolbar.ql-snow .ql-stroke {
-        stroke: #8892b0 !important;
-    }
-    .ql-toolbar.ql-snow .ql-fill {
-        fill: #8892b0 !important;
-    }
-    .ql-toolbar.ql-snow .ql-picker-label {
-        color: #8892b0 !important;
-    }
-    .ql-toolbar.ql-snow button:hover .ql-stroke,
-    .ql-toolbar.ql-snow .ql-picker-label:hover .ql-stroke {
-        stroke: #00d4ff !important;
-    }
-    .ql-toolbar.ql-snow button:hover .ql-fill {
-        fill: #00d4ff !important;
-    }
-    .ql-toolbar.ql-snow button.ql-active .ql-stroke {
-        stroke: #00d4ff !important;
-    }
-    .ql-toolbar.ql-snow button.ql-active .ql-fill {
-        fill: #00d4ff !important;
-    }
-    .ql-container.ql-snow {
-        background: #060910 !important;
-        border-color: rgba(30,45,74,0.5) !important;
-        color: #ccd6f6 !important;
-        font-family: 'Rajdhani', sans-serif !important;
-        font-size: 15px !important;
-        min-height: 220px;
-        border-radius: 0 0 10px 10px !important;
-    }
-    .ql-editor {
-        color: #ccd6f6 !important;
-        min-height: 220px;
-    }
-    .ql-editor.ql-blank::before {
-        color: #3a4a6a !important;
-        font-style: italic !important;
-    }
-    .ql-snow .ql-picker-options {
-        background: #0c1220 !important;
-        border-color: rgba(30,45,74,0.5) !important;
-    }
-    .ql-snow .ql-picker-item {
-        color: #8892b0 !important;
-    }
-    .ql-snow .ql-picker-item:hover {
-        color: #00d4ff !important;
-    }
-    .ql-editor h1, .ql-editor h2, .ql-editor h3 {
-        color: #ccd6f6 !important;
-    }
-    .ql-editor a {
-        color: #00d4ff !important;
-    }
-    .ql-tooltip {
-        background: #0c1220 !important;
-        border-color: rgba(30,45,74,0.5) !important;
-        color: #ccd6f6 !important;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.5) !important;
-    }
-    .ql-tooltip input[type=text] {
-        background: #060910 !important;
-        border-color: rgba(30,45,74,0.5) !important;
-        color: #ccd6f6 !important;
-    }
-    .ql-tooltip a {
-        color: #00d4ff !important;
-    }
+    /* Quill dark theme */
+    .ql-snow { border: none !important; background: transparent !important; }
+    .ql-editor { background: var(--bg-card) !important; color: var(--t1) !important; font-family: 'Rajdhani' !important; border-radius: 10px !important; min-height: 180px !important; border: 1px solid var(--border) !important; }
+    .ql-toolbar { background: transparent !important; border: 1px solid var(--border) !important; border-radius: 10px 10px 0 0 !important; }
+    .ql-toolbar .ql-stroke { stroke: var(--t3) !important; }
+    .ql-toolbar .ql-fill { fill: var(--t3) !important; }
+    .ql-toolbar .ql-picker-label { color: var(--t3) !important; }
+    .ql-toolbar button:hover .ql-stroke { stroke: var(--cyan) !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -654,145 +262,159 @@ def generate_line_series(anchor_price: float, anchor_time: datetime,
 def render_visual_ladder(lines: list, current_price: float = None, 
                           title: str = "Line Ladder", height: int = 600,
                           show_zones: bool = True, show_distances: bool = True):
-    """Render a beautiful ladder using styled HTML table."""
+    """Render a spatial vertical ruler with anti-collision logic. Uses st.components.v1.html for full CSS."""
     import streamlit as st
+    import streamlit.components.v1 as components
     
     sorted_lines = sorted(lines, key=lambda x: x['value'], reverse=True)
     if not sorted_lines:
         return
     
-    rows = ""
-    price_inserted = False
-    
+    # Build items list with current price
+    all_items = []
     for line in sorted_lines:
-        # ── Price marker row ──
-        if current_price is not None and not price_inserted and line['value'] < current_price:
-            above = [l for l in sorted_lines if l['value'] > current_price]
-            below = [l for l in sorted_lines if l['value'] <= current_price]
-            dist_up = f"▲ {(above[-1]['value'] - current_price):.1f}pt" if above else ""
-            dist_dn = f"▼ {(current_price - below[0]['value']):.1f}pt" if below else ""
+        all_items.append({
+            'label': line.get('label', ''),
+            'full_name': line.get('full_name', ''),
+            'val': line['value'],
+            'direction': line.get('direction', 'ascending'),
+            'color': line.get('color', '#888'),
+            'is_key': line.get('is_key', False),
+            'is_live': False,
+        })
+    
+    if current_price is not None:
+        all_items.append({
+            'label': 'CURRENT', 'full_name': 'Market Price',
+            'val': current_price, 'direction': 'neutral',
+            'color': '#00d4ff', 'is_key': True, 'is_live': True,
+        })
+    
+    # Sort descending (highest at top)
+    all_items.sort(key=lambda x: x['val'], reverse=True)
+    
+    # Calculate proportional positions
+    max_p = all_items[0]['val']
+    min_p = all_items[-1]['val']
+    padding = (max_p - min_p) * 0.1 if max_p != min_p else 10
+    max_p += padding
+    min_p -= padding
+    price_range = max_p - min_p if max_p != min_p else 1
+    
+    for item in all_items:
+        item['top_pct'] = 100 - (((item['val'] - min_p) / price_range) * 100)
+    
+    # Anti-collision: minimum 7% gap between elements
+    min_gap = 7.0
+    for i in range(1, len(all_items)):
+        if all_items[i]['top_pct'] - all_items[i-1]['top_pct'] < min_gap:
+            all_items[i]['top_pct'] = all_items[i-1]['top_pct'] + min_gap
+    
+    # Re-center if bottom items pushed out of bounds
+    overflow = all_items[-1]['top_pct'] - 95
+    if overflow > 0:
+        for item in all_items:
+            item['top_pct'] -= overflow
+    
+    # Calculate container height based on items
+    container_height = max(height, len(all_items) * 55)
+    
+    # Build HTML
+    html = f"""
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&family=Orbitron:wght@400;700;800&family=Rajdhani:wght@400;500;700&display=swap" rel="stylesheet">
+    <div style="position:relative;height:{container_height}px;background:rgba(15,23,42,0.4);border-radius:12px;border:1px solid rgba(255,255,255,0.05);margin:0.5rem 0;overflow:hidden;">
+        <div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:rgba(255,255,255,0.08);"></div>
+    """
+    
+    for item in all_items:
+        top = item['top_pct']
+        
+        if item['is_live']:
+            # Current price — centered glowing band
+            dist_texts = []
+            for other in all_items:
+                if other['is_live']:
+                    continue
+                d = other['val'] - item['val']
+                if abs(d) < 0.01:
+                    continue
             
-            rows += '<tr>'
-            rows += '<td colspan="4" style="padding:0;height:2px;background:rgba(0,212,255,0.15);"></td>'
-            rows += '</tr>'
-            rows += '<tr style="background:rgba(0,212,255,0.06);">'
-            rows += '<td style="padding:14px 16px;color:#00d4ff;font-size:1.4rem;width:40px;text-align:center;">◆</td>'
-            rows += f'<td style="padding:14px 8px;color:#00d4ff;font-weight:700;font-size:1rem;letter-spacing:1px;">◉ LIVE PRICE</td>'
-            rows += f'<td style="padding:14px 8px;color:#00d4ff;font-weight:700;text-align:right;font-size:1.15rem;">{current_price:.2f}</td>'
-            rows += f'<td style="padding:14px 16px;color:rgba(0,212,255,0.4);font-size:0.7rem;text-align:right;white-space:nowrap;">{dist_up} {dist_dn}</td>'
-            rows += '</tr>'
-            rows += '<tr>'
-            rows += '<td colspan="4" style="padding:0;height:2px;background:rgba(0,212,255,0.15);"></td>'
-            rows += '</tr>'
-            price_inserted = True
-        
-        # ── Line row ──
-        is_key = line.get('is_key', False)
-        color = line.get('color', '#888')
-        label = line.get('label', '')
-        full_name = line.get('full_name', '')
-        value = line['value']
-        direction = line.get('direction', 'ascending')
-        
-        if is_key:
-            marker = "◆"
-            fw = "700"
-            fs = "0.95rem"
-            vfs = "1.05rem"
-            pad = "12px"
-            bg = f"rgba(255,255,255,0.025)"
-            border = f"4px solid {color}"
-            name_display = full_name[:20]
+            html += f"""<div style="position:absolute;top:{top}%;left:0;right:0;transform:translateY(-50%);z-index:10;">
+                <div style="position:absolute;left:0;right:0;height:1px;background:rgba(56,189,248,0.3);top:50%;"></div>
+                <div style="background:rgba(56,189,248,0.12);border:1px solid rgba(56,189,248,0.5);box-shadow:0 0 20px rgba(56,189,248,0.3);border-radius:6px;padding:10px 14px;width:220px;margin:0 auto;text-align:center;backdrop-filter:blur(5px);">
+                    <div style="color:#94a3b8;font-family:Rajdhani,sans-serif;font-size:0.75rem;text-transform:uppercase;letter-spacing:2px;">◉ Live Price</div>
+                    <div style="color:#38bdf8;font-family:JetBrains Mono,monospace;font-size:1.5rem;font-weight:800;">{item['val']:.2f}</div>
+                </div>
+            </div>"""
         else:
-            marker = "│"
-            fw = "500"
-            fs = "0.82rem"
-            vfs = "0.88rem"
-            pad = "8px"
-            bg = "transparent"
-            border = f"2px solid {color}60"
-            name_display = full_name[:16]
-        
-        # Distance from price
-        dist_text = ""
-        dist_color = "#3a4a6a"
-        if current_price is not None:
-            dist = value - current_price
-            if dist > 0:
-                dist_text = f"+{dist:.1f}"
-                dist_color = "#3a5a4a"
+            is_asc = item['direction'] == 'ascending'
+            color = item['color']
+            weight = "800" if item['is_key'] else "400"
+            opacity = "1" if item['is_key'] else "0.55"
+            font_size = "0.9rem" if item['is_key'] else "0.8rem"
+            val_size = "1rem" if item['is_key'] else "0.85rem"
+            
+            # Ascending on the LEFT, descending on the RIGHT
+            if is_asc:
+                align = "right"
+                left_pos = "0"
+                border_side = "border-right"
+                pad_side = "padding-right"
             else:
-                dist_text = f"{dist:.1f}"
-                dist_color = "#5a3a3a"
-        
-        # Hit indicator
-        hit = line.get('touched', None)
-        hit_text = ""
-        if hit is True:
-            hit_text = " ✅"
-        elif hit is False:
-            hit_text = ""
-        
-        # Direction arrow
-        arrow = "↗" if direction == 'ascending' else "↘"
-        
-        rows += f'<tr style="background:{bg};border-left:{border};">'
-        rows += f'<td style="padding:{pad} 10px;color:{color};font-size:1.1rem;width:30px;text-align:center;">{marker}</td>'
-        rows += f'<td style="padding:{pad} 8px;color:{color};font-weight:{fw};font-size:{fs};">{label} {arrow} {name_display}{hit_text}</td>'
-        rows += f'<td style="padding:{pad} 8px;color:#ccd6f6;font-weight:700;text-align:right;font-size:{vfs};">{value:.2f}</td>'
-        rows += f'<td style="padding:{pad} 16px;color:{dist_color};font-size:0.72rem;text-align:right;width:70px;">{dist_text}</td>'
-        rows += '</tr>'
-        
-        # Thin separator for key levels
-        if is_key:
-            rows += '<tr>'
-            rows += f'<td colspan="4" style="padding:0;height:1px;background:{color}15;"></td>'
-            rows += '</tr>'
+                align = "left"
+                left_pos = "50%"
+                border_side = "border-left"
+                pad_side = "padding-left"
+            
+            # Distance from price
+            dist_html = ""
+            if current_price is not None:
+                dist = item['val'] - current_price
+                dist_color = "rgba(0,230,118,0.5)" if dist > 0 else "rgba(255,23,68,0.5)"
+                dist_html = f'<span style="color:{dist_color};font-size:0.7rem;margin-left:8px;">{dist:+.1f}</span>'
+            
+            # Horizontal tick line extending to center
+            tick_left = "calc(100% - 1px)" if is_asc else "0"
+            tick_width = "calc(50vw)" if is_asc else "calc(50vw)"
+            tick_html = ""
+            if item['is_key']:
+                if is_asc:
+                    tick_html = f'<div style="position:absolute;top:50%;right:0;width:50%;height:1px;background:linear-gradient(to right,transparent,{color}40);"></div>'
+                else:
+                    tick_html = f'<div style="position:absolute;top:50%;left:0;width:50%;height:1px;background:linear-gradient(to left,transparent,{color}40);"></div>'
+            
+            arrow = "↗" if is_asc else "↘"
+            label_text = f"{item['label']} {arrow}"
+            if item['is_key'] and item.get('full_name'):
+                label_text = f"{item['label']} {arrow} {item['full_name'][:15]}"
+            
+            html += f"""<div style="position:absolute;top:{top}%;left:{left_pos};width:50%;transform:translateY(-50%);text-align:{align};padding:0 15px;opacity:{opacity};z-index:5;">
+                {tick_html}
+                <div style="display:inline-block;font-family:JetBrains Mono,monospace;font-size:{font_size};color:{color};{border_side}:{'3px' if item['is_key'] else '2px'} solid {color};{pad_side}:10px;background:rgba(15,23,42,0.85);border-radius:4px;padding:4px 10px;">
+                    <span style="font-family:Outfit,sans-serif;font-weight:{weight};">{label_text}</span>
+                    <span style="font-weight:700;font-size:{val_size};margin-left:6px;">{item['val']:.2f}</span>{dist_html}
+                </div>
+            </div>"""
     
-    # Price below all lines
-    if current_price is not None and not price_inserted:
-        rows += '<tr>'
-        rows += '<td colspan="4" style="padding:0;height:2px;background:rgba(0,212,255,0.15);"></td>'
-        rows += '</tr>'
-        rows += '<tr style="background:rgba(0,212,255,0.06);">'
-        rows += '<td style="padding:14px 16px;color:#00d4ff;font-size:1.4rem;width:40px;text-align:center;">◆</td>'
-        rows += f'<td style="padding:14px 8px;color:#00d4ff;font-weight:700;font-size:1rem;letter-spacing:1px;">◉ LIVE PRICE</td>'
-        rows += f'<td style="padding:14px 8px;color:#00d4ff;font-weight:700;text-align:right;font-size:1.15rem;">{current_price:.2f}</td>'
-        rows += '<td style="padding:14px 16px;"></td>'
-        rows += '</tr>'
-    
-    table = f'<table style="width:100%;border-collapse:collapse;font-family:JetBrains Mono,monospace;border-spacing:0;">{rows}</table>'
-    st.markdown(table, unsafe_allow_html=True)
+    html += "</div>"
+    components.html(html, height=container_height + 20, scrolling=False)
 
 
 def render_signal_display(signal_text: str, signal_detail: str, signal_class: str):
-    """Render polished signal display — Streamlit-safe HTML."""
+    """V2 signal banner with radial glow."""
     import streamlit as st
-    
     color = '#00e676' if signal_class == 'bull' else '#ff1744' if signal_class == 'bear' else '#ffd740'
-    bg = 'rgba(0,230,118,0.04)' if signal_class == 'bull' else 'rgba(255,23,68,0.04)' if signal_class == 'bear' else 'rgba(255,215,64,0.04)'
-    icon = '🟢' if signal_class == 'bull' else '🔴' if signal_class == 'bear' else '🟡'
-    
     st.markdown(f"""
-    <div style="text-align:center;padding:28px 20px;margin:8px 0;
-                background:{bg};border:1px solid {color}30;border-radius:16px;">
-        <div style="font-size:2.5rem;margin-bottom:10px;">{icon}</div>
-        <div style="font-family:Orbitron,monospace;font-size:1.4rem;color:{color};font-weight:700;letter-spacing:1px;">
-            {signal_text}
-        </div>
-        <div style="font-family:Rajdhani,sans-serif;font-size:0.95rem;color:#8892b0;margin-top:10px;line-height:1.4;">
-            {signal_detail}
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    <div class="sig {signal_class}">
+        <div class="sig-dir" style="color:{color};">{signal_text}</div>
+        <div class="sig-detail">{signal_detail}</div>
+    </div>""", unsafe_allow_html=True)
 
 
 def render_scenario_cards(scenarios: list, num_contracts: int = 3):
-    """Render premium scenario cards — Streamlit-safe HTML grid."""
+    """V2 premium scenario cards."""
     import streamlit as st
-    
-    html = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">'
-    
+    html = '<div class="sc-grid">'
     for s in scenarios:
         pnl_per_contract = (s['premium'] - s['entry_premium']) * 100
         pnl_total = pnl_per_contract * num_contracts
@@ -800,63 +422,45 @@ def render_scenario_cards(scenarios: list, num_contracts: int = 3):
         pnl_sign = '+' if pnl_total >= 0 else ''
         pnl_pct = ((s['premium'] - s['entry_premium']) / s['entry_premium'] * 100) if s['entry_premium'] > 0 else 0
         color = s['color']
-        
-        html += f"""<div style="background:rgba(16,22,40,0.8);border:1px solid {color}25;border-radius:12px;
-                    padding:14px 10px;text-align:center;border-top:2px solid {color}60;">
-            <div style="font-family:Rajdhani,sans-serif;color:{color};font-size:0.7rem;text-transform:uppercase;
-                        letter-spacing:1.5px;font-weight:600;">{s['label']}</div>
-            <div style="font-family:JetBrains Mono,monospace;color:#3a4a6a;font-size:0.65rem;margin:2px 0;">{s['spx_label']}</div>
-            <div style="font-family:JetBrains Mono,monospace;color:{color};font-size:1.4rem;font-weight:700;margin:4px 0;">
-                ${s['premium']:.2f}</div>
-            <div style="font-family:JetBrains Mono,monospace;color:#3a4a6a;font-size:0.65rem;">${s['premium']*100:.0f}/contract</div>
-            <div style="height:3px;background:rgba(255,255,255,0.03);border-radius:2px;margin:8px 4px 4px;">
-                <div style="height:100%;width:{min(abs(pnl_pct), 100):.0f}%;background:{pnl_color};border-radius:2px;"></div>
-            </div>
-            <div style="font-family:JetBrains Mono,monospace;color:{pnl_color};font-size:0.85rem;font-weight:700;">
-                {pnl_sign}${pnl_total:,.0f} <span style="font-size:0.65rem;opacity:0.6;">({pnl_sign}{pnl_pct:.0f}%)</span></div>
-            <div style="font-family:Rajdhani,sans-serif;color:#2a3a5a;font-size:0.6rem;margin-top:3px;">{s['desc']}</div>
+        html += f"""<div class="sc" style="border-top:2px solid {color}50;">
+            <div class="sc-label" style="color:{color};">{s['label']}</div>
+            <div style="font-family:JetBrains Mono;font-size:0.6rem;color:var(--t3);margin:2px 0;">{s['spx_label']}</div>
+            <div class="sc-premium" style="color:{color};">${s['premium']:.2f}</div>
+            <div style="font-family:JetBrains Mono;font-size:0.6rem;color:var(--t3);">${s['premium']*100:.0f}/contract</div>
+            <div class="sc-pnl" style="color:{pnl_color};font-weight:700;">
+                {pnl_sign}${pnl_total:,.0f} <span style="font-size:0.6rem;opacity:0.6;">({pnl_sign}{pnl_pct:.0f}%)</span></div>
         </div>"""
-    
     html += '</div>'
     st.markdown(html, unsafe_allow_html=True)
 
 
 def render_metric_row(metrics: list):
-    """Render a row of metric cards — Streamlit-safe HTML."""
+    """V2 KPI row."""
     import streamlit as st
-    
     n = len(metrics)
-    html = f'<div style="display:grid;grid-template-columns:repeat({n},1fr);gap:10px;">'
-    
+    html = f'<div class="kpi-row" style="grid-template-columns:repeat({n},1fr);">'
     for m in metrics:
         color = m.get('color', '#00d4ff')
         subtitle = m.get('subtitle', '')
-        sub_html = f'<div style="font-family:JetBrains Mono,monospace;color:#3a4a6a;font-size:0.7rem;margin-top:4px;">{subtitle}</div>' if subtitle else ''
-        
-        html += f"""<div style="background:rgba(16,22,40,0.8);border:1px solid rgba(255,255,255,0.04);
-                    border-radius:12px;padding:16px 12px;text-align:center;border-bottom:2px solid {color}30;">
-            <div style="font-family:Orbitron,monospace;color:#3a4a6a;font-size:0.55rem;
-                        text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;">{m['label']}</div>
-            <div style="font-family:JetBrains Mono,monospace;color:{color};font-size:1.5rem;font-weight:700;">{m['value']}</div>
+        sub_html = f'<div class="kpi-sub">{subtitle}</div>' if subtitle else ''
+        html += f"""<div class="kpi" style="border-bottom:2px solid {color}25;">
+            <div class="kpi-label">{m['label']}</div>
+            <div class="kpi-val" style="color:{color};">{m['value']}</div>
             {sub_html}
         </div>"""
-    
     html += '</div>'
     st.markdown(html, unsafe_allow_html=True)
 
 
 def render_section_banner(icon: str, title: str, subtitle: str = "", color: str = "#00d4ff"):
-    """Render a large visually striking section banner."""
+    """V2 section header."""
     import streamlit as st
-    sub_html = f'<div style="font-family:Rajdhani,sans-serif;color:#3a4a6a;font-size:0.85rem;margin-top:2px;">{subtitle}</div>' if subtitle else ''
+    sub_html = f'<span class="sec-sub">{subtitle}</span>' if subtitle else ''
     st.markdown(f"""
-    <div style="display:flex;align-items:center;padding:16px 0;margin:12px 0 8px;border-bottom:1px solid {color}15;">
-        <span style="font-size:2.5rem;margin-right:14px;">{icon}</span>
-        <div>
-            <div style="font-family:Orbitron,monospace;font-size:1.15rem;color:{color};font-weight:700;letter-spacing:0.5px;">
-                {title}</div>
-            {sub_html}
-        </div>
+    <div class="sec">
+        <span style="font-size:1.1rem;">{icon}</span>
+        <span class="sec-title">{title}</span>
+        {sub_html}
     </div>""", unsafe_allow_html=True)
 
 
@@ -1806,8 +1410,11 @@ def detect_inflections(ny_candles: pd.DataFrame) -> dict:
 
 def main():
     # Header
-    st.markdown('<div class="main-header">SPX Prophet Next Gen</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Structural Flow Engine • Futures & Options</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="app-header">
+        <div class="app-title">SPX Prophet</div>
+        <div class="app-sub">Structural Flow Engine • Futures & Options</div>
+    </div>""", unsafe_allow_html=True)
     
     # Live price tracking toggle
     live_mode = st.toggle("🔴 LIVE MODE", value=False, help="Auto-refresh every 30 seconds with current ES price")
@@ -2200,15 +1807,14 @@ def main():
     # MAIN CONTENT: Tabs
     # ============================================================
     
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "📈 STRUCTURAL MAP", 
-        "🌙 ASIAN SESSION (Futures)", 
-        "☀️ NY SESSION (Options)",
+    tab1, tab2, tab3 = st.tabs([
+        "⚡ SIGNAL & LEVELS", 
+        "🌙 ASIAN SESSION", 
         "📋 TRADE LOG"
     ])
     
     # ============================================================
-    # TAB 1: STRUCTURAL MAP
+    # TAB 1: SIGNAL & LEVELS
     # ============================================================
     with tab1:
         render_section_banner("🎯", "9:00 AM CT Decision Levels", "Key structural lines projected to the opening bell", "#ffd740")
@@ -2249,302 +1855,6 @@ def main():
         
         cards_html += '</div>'
         st.markdown(cards_html, unsafe_allow_html=True)
-        
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        
-        # ============================================================
-        # STRUCTURAL MAP CHART
-        # ============================================================
-        
-        # Chart time range: from prior NY session start through next day NY close
-        chart_start = datetime.combine(prior_date, time(8, 30))
-        chart_end = datetime.combine(next_date, time(15, 0))
-        
-        # ============================================================
-        # Build master time axis (sequential indices, no gaps)
-        # ============================================================
-        master_times = []
-        scan_t = chart_start
-        while scan_t <= chart_end:
-            ct_t = scan_t.time()
-            wd_t = scan_t.weekday()
-            skip = (wd_t == 5 or (wd_t == 6 and ct_t < time(17, 0)) or
-                    (wd_t == 4 and ct_t >= time(16, 0)) or
-                    (time(16, 0) <= ct_t < time(17, 0)))
-            if not skip:
-                master_times.append(scan_t)
-            scan_t += timedelta(minutes=CANDLE_MINUTES)
-        time_to_idx = {t: i for i, t in enumerate(master_times)}
-        
-        # ============================================================
-        # Session block labels for x-axis (clean, professional)
-        # ============================================================
-        
-        # Define session blocks with their display names and boundaries
-        prior_wd_chart = prior_date.weekday() if hasattr(prior_date, 'weekday') else datetime.combine(prior_date, time(0,0)).weekday()
-        is_friday_chart = prior_wd_chart == 4
-        overnight_chart = (next_date - timedelta(days=1)) if is_friday_chart else prior_date
-        
-        session_blocks = []
-        
-        # Prior NY session
-        ny1_start = datetime.combine(prior_date, time(8, 30))
-        ny1_end = datetime.combine(prior_date, time(15, 0))
-        day_abbr = prior_date.strftime('%a')
-        session_blocks.append(('NY', f"{day_abbr} NY", ny1_start, ny1_end))
-        
-        if is_friday_chart:
-            # Weekend gap: Fri close to Sun globex open
-            sun_open = datetime.combine(next_date - timedelta(days=1), time(17, 0))
-            session_blocks.append(('Globex', "Sun Globex", sun_open, datetime.combine(next_date - timedelta(days=1), time(19, 0))))
-            session_blocks.append(('Tokyo', "Tokyo", datetime.combine(next_date - timedelta(days=1), time(19, 0)), datetime.combine(next_date, time(2, 0))))
-        else:
-            # Overnight: same day globex through next morning
-            session_blocks.append(('Globex', "Globex Open", datetime.combine(prior_date, time(17, 0)), datetime.combine(prior_date, time(19, 0))))
-            session_blocks.append(('Tokyo', "Tokyo", datetime.combine(prior_date, time(19, 0)), datetime.combine(next_date, time(2, 0))))
-        
-        session_blocks.append(('London', "London", datetime.combine(next_date, time(2, 0)), datetime.combine(next_date, time(8, 30))))
-        
-        next_day_abbr = next_date.strftime('%a')
-        ny2_start = datetime.combine(next_date, time(8, 30))
-        ny2_end = datetime.combine(next_date, time(15, 0))
-        session_blocks.append(('NY2', f"{next_day_abbr} NY", ny2_start, ny2_end))
-        
-        # Build tick labels: one centered label per session block
-        tick_vals = []
-        tick_texts = []
-        
-        for _, label, s_start, s_end in session_blocks:
-            # Find indices within this session
-            s_indices = [i for i, t in enumerate(master_times) if s_start <= t <= s_end]
-            if s_indices:
-                # Place label at center of the block
-                center_idx = s_indices[len(s_indices) // 2]
-                tick_vals.append(center_idx)
-                tick_texts.append(label)
-        
-        # Also add the 9 AM marker between sessions
-        nine_am_dt = datetime.combine(next_date, time(9, 0))
-        if nine_am_dt in time_to_idx:
-            tick_vals.append(time_to_idx[nine_am_dt])
-            tick_texts.append("9AM ▶")
-        
-        fig = go.Figure()
-        
-        # ══════════════════════════════════════════════════════════════
-        # HORIZONTAL LADDER CHART — "Thermometer" style
-        # Price levels as horizontal zones, current price as marker
-        # ══════════════════════════════════════════════════════════════
-        
-        # Collect all line levels at 9 AM into a sorted ladder
-        ladder_lines = []
-        for li, asc_line in enumerate(levels['ascending']):
-            is_wick = asc_line['type'] == 'highest_wick'
-            ladder_lines.append({
-                'value': asc_line['value_at_9am'],
-                'label': 'HW' if is_wick else f'B{li+1}',
-                'full': f"{'Highest Wick' if is_wick else f'Bounce {li+1}'}",
-                'direction': 'ascending',
-                'color': '#ff1744' if is_wick else '#ff5252',
-                'is_key': is_wick,
-                'anchor': asc_line['anchor_price'],
-            })
-        for li, desc_line in enumerate(levels['descending']):
-            is_wick = desc_line['type'] == 'lowest_wick'
-            ladder_lines.append({
-                'value': desc_line['value_at_9am'],
-                'label': 'LW' if is_wick else f'R{li+1}',
-                'full': f"{'Lowest Wick' if is_wick else f'Rejection {li+1}'}",
-                'direction': 'descending',
-                'color': '#00e676' if is_wick else '#69f0ae',
-                'is_key': is_wick,
-                'anchor': desc_line['anchor_price'],
-            })
-        ladder_lines.sort(key=lambda x: x['value'])
-        
-        if ladder_lines:
-            # Price range for chart
-            all_vals = [l['value'] for l in ladder_lines]
-            price_min = min(all_vals) - 3
-            price_max = max(all_vals) + 3
-            price_range = price_max - price_min
-            
-            # Get live price if available
-            live_spx = None
-            if live_mode and live_price_data and live_price_data.get('ok'):
-                live_spx = live_price_data['price'] - es_offset_val
-                price_min = min(price_min, live_spx - 3)
-                price_max = max(price_max, live_spx + 3)
-                price_range = price_max - price_min
-            
-            # ── Zone fills between adjacent lines ──
-            for i in range(len(ladder_lines) - 1):
-                lower = ladder_lines[i]
-                upper = ladder_lines[i + 1]
-                gap = upper['value'] - lower['value']
-                
-                # Color based on what's above vs below
-                if upper['direction'] == 'ascending' and lower['direction'] == 'descending':
-                    # Ascending above + descending below = compression zone (gold)
-                    zone_color = 'rgba(255,215,64,0.04)'
-                elif upper['direction'] == 'descending':
-                    # Descending above = bearish zone
-                    zone_color = 'rgba(255,23,68,0.03)'
-                elif lower['direction'] == 'ascending':
-                    # Ascending below = bullish zone
-                    zone_color = 'rgba(0,230,118,0.03)'
-                else:
-                    zone_color = 'rgba(255,255,255,0.01)'
-                
-                fig.add_shape(type="rect",
-                    x0=-0.5, x1=10.5,
-                    y0=lower['value'], y1=upper['value'],
-                    fillcolor=zone_color,
-                    line=dict(width=0),
-                    layer="below",
-                )
-            
-            # ── Horizontal level lines with glow ──
-            for line in ladder_lines:
-                # Glow layer
-                fig.add_shape(type="line",
-                    x0=-0.5, x1=10.5,
-                    y0=line['value'], y1=line['value'],
-                    line=dict(color=line['color'], width=8 if line['is_key'] else 4),
-                    opacity=0.06,
-                    layer="below",
-                )
-                
-                # Main line
-                line_width = 3 if line['is_key'] else 1.5
-                dash = 'solid' if line['is_key'] else 'dot'
-                fig.add_shape(type="line",
-                    x0=-0.5, x1=10.5,
-                    y0=line['value'], y1=line['value'],
-                    line=dict(color=line['color'], width=line_width, dash=dash),
-                    opacity=0.85 if line['is_key'] else 0.45,
-                )
-                
-                # Right-side label
-                icon = '▲' if line['direction'] == 'ascending' else '▼'
-                font_size = 12 if line['is_key'] else 10
-                fig.add_annotation(
-                    x=10.5, y=line['value'],
-                    text=f"<b>{icon} {line['label']}</b> {line['value']:.2f}",
-                    showarrow=False,
-                    xanchor="left", xshift=8,
-                    font=dict(size=font_size, color=line['color'], family='JetBrains Mono'),
-                    bgcolor='rgba(6,9,16,0.85)',
-                    bordercolor=line['color'],
-                    borderwidth=1 if line['is_key'] else 0,
-                    borderpad=4,
-                )
-                
-                # Left-side direction indicator  
-                if line['is_key']:
-                    fig.add_annotation(
-                        x=-0.5, y=line['value'],
-                        text=f"<b>{line['full']}</b>",
-                        showarrow=False,
-                        xanchor="right", xshift=-8,
-                        font=dict(size=9, color=line['color'], family='Rajdhani'),
-                        opacity=0.7,
-                    )
-            
-            # ── Live price marker — glowing horizontal band ──
-            if live_spx:
-                # Wide glow band
-                fig.add_shape(type="rect",
-                    x0=-0.5, x1=10.5,
-                    y0=live_spx - 0.5, y1=live_spx + 0.5,
-                    fillcolor='rgba(0,212,255,0.08)',
-                    line=dict(width=0),
-                )
-                # Bright line
-                fig.add_shape(type="line",
-                    x0=-0.5, x1=10.5,
-                    y0=live_spx, y1=live_spx,
-                    line=dict(color='#00d4ff', width=2.5, dash='solid'),
-                )
-                # Diamond marker
-                fig.add_trace(go.Scatter(
-                    x=[5], y=[live_spx],
-                    mode='markers+text',
-                    marker=dict(symbol='diamond', size=18, color='#00d4ff',
-                        line=dict(width=2, color='rgba(0,212,255,0.4)')),
-                    text=[f"  ◉ LIVE  {live_spx:.2f}"],
-                    textposition='middle right',
-                    textfont=dict(color='#00d4ff', size=13, family='Orbitron'),
-                    showlegend=False,
-                    hovertemplate=f"<b>LIVE SPX</b><br>{live_spx:.2f}<extra></extra>",
-                ))
-                
-                # Show distance to nearest lines above/below
-                above_lines = [l for l in ladder_lines if l['value'] > live_spx]
-                below_lines = [l for l in ladder_lines if l['value'] <= live_spx]
-                
-                if above_lines:
-                    nearest_above = min(above_lines, key=lambda x: x['value'])
-                    dist_up = nearest_above['value'] - live_spx
-                    fig.add_annotation(
-                        x=5, y=(live_spx + nearest_above['value']) / 2,
-                        text=f"<b>{dist_up:.1f}pt</b>",
-                        showarrow=False,
-                        font=dict(size=10, color='rgba(255,255,255,0.3)', family='JetBrains Mono'),
-                    )
-                
-                if below_lines:
-                    nearest_below = max(below_lines, key=lambda x: x['value'])
-                    dist_down = live_spx - nearest_below['value']
-                    fig.add_annotation(
-                        x=5, y=(live_spx + nearest_below['value']) / 2,
-                        text=f"<b>{dist_down:.1f}pt</b>",
-                        showarrow=False,
-                        font=dict(size=10, color='rgba(255,255,255,0.3)', family='JetBrains Mono'),
-                    )
-            
-        # ── Chart layout — clean thermometer style ──
-        fig.update_layout(
-            template='plotly_dark',
-            paper_bgcolor='rgba(5,8,16,1)',
-            plot_bgcolor='rgba(8,13,22,1)',
-            height=700,
-            margin=dict(l=120, r=200, t=30, b=30),
-            xaxis=dict(
-                showgrid=False, showticklabels=False, showline=False,
-                zeroline=False, range=[-1, 11.5],
-                fixedrange=True,
-            ),
-            yaxis=dict(
-                gridcolor='rgba(30,45,74,0.08)',
-                showgrid=True, gridwidth=1,
-                zeroline=False,
-                tickformat='.2f', side='right',
-                range=[price_min, price_max] if ladder_lines else None,
-                tickfont=dict(size=11, family='JetBrains Mono', color='#3a4a6a'),
-                showline=True, linecolor='rgba(30,45,74,0.2)', linewidth=1,
-                dtick=2,
-            ),
-            showlegend=False,
-            font=dict(family='JetBrains Mono', color='#8892b0'),
-            hovermode='closest',
-            hoverlabel=dict(
-                bgcolor='rgba(6,9,16,0.95)',
-                bordercolor='rgba(0,212,255,0.2)',
-                font=dict(family='JetBrains Mono', size=11, color='#ccd6f6'),
-            ),
-            dragmode='pan',
-        )
-        
-        # Chart config
-        chart_config = {
-            'displayModeBar': True,
-            'modeBarButtonsToRemove': ['autoScale2d', 'lasso2d', 'select2d', 'zoom2d', 'zoomIn2d', 'zoomOut2d'],
-            'displaylogo': False,
-            'scrollZoom': True,
-        }
-        
-        st.plotly_chart(fig, use_container_width=True, config=chart_config)
         
         # ============================================================
         # 9 AM LINE LADDER (all lines sorted by value)
@@ -2601,7 +1911,7 @@ def main():
         render_section_banner("🌙", "Asian Session — ES Futures", "Prop firm evaluation • 6:00 PM CT decision framework", "#b388ff")
         st.markdown("*6:00 PM Decision • 6-7 PM Trading Window • Flat by 7 PM*")
         
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
         
         # Determine correct overnight date
         prior_wd_tab2 = prior_date.weekday() if hasattr(prior_date, 'weekday') else datetime.combine(prior_date, time(0,0)).weekday()
@@ -2721,7 +2031,7 @@ def main():
                                     help="Maximum points expected in the 6-7 PM window")
         
         # ── 6 PM Line Ladder with price position ──
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
         render_section_banner("📊", "Line Ladder @ 6:00 PM CT", "Your position in the structural map", "#00d4ff")
         
         if line_ladder_6pm:
@@ -2736,7 +2046,7 @@ def main():
                 height=max(400, len(line_ladder_6pm) * 45),
             )
         
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
         
         if line_ladder_6pm:
             # Find lines immediately above and below price
@@ -2768,7 +2078,7 @@ def main():
             dist_above = (nearest_above['value_6pm'] - asian_price) if nearest_above else 999
             dist_below = (asian_price - nearest_below['value_6pm']) if nearest_below else 999
             
-            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+            st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
             
             # ============================================================
             # GENERATE TRADE SETUPS
@@ -2925,14 +2235,14 @@ def main():
                 </div>
                 """, unsafe_allow_html=True)
             
-            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+            st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
             
             # ============================================================
             # RULES REMINDER
             # ============================================================
             st.markdown("""
-            <div class="rules-box">
-                <div style="font-family: Orbitron, monospace; color: #ffd740; font-size: 0.9rem; margin-bottom: 10px; letter-spacing: 2px;">
+            <div class="rules">
+                <div style="font-family: Outfit, sans-serif; color: #ffd740; font-size: 0.9rem; margin-bottom: 10px; letter-spacing: 2px;">
                     ⏰ SESSION RULES
                 </div>
                 <div style="font-family: JetBrains Mono, monospace; color: #8892b0; font-size: 0.8rem; line-height: 2;">
@@ -2944,19 +2254,10 @@ def main():
             </div>
             """, unsafe_allow_html=True)
     
-    # ============================================================
-    # TAB 3: NY SESSION OPTIONS — 9 AM DECISION FRAMEWORK
-    # ============================================================
-    with tab3:
-        render_section_banner("☀️", "NY Session — SPX 0DTE Options", "9:00 AM structural signal • Same-day expiry", "#ff9100")
-        st.markdown("*Tastytrade • 20pt OTM • 3 Contracts • Exit at SPX Level*")
-        
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        
-        # ============================================================
-        # 9 AM PRICE INPUT
-        # ============================================================
-        render_section_banner("🎯", "9:00 AM Decision Framework", "Where is price in the ladder?", "#ffd740")
+        # ── NY SESSION — 9 AM DECISION FRAMEWORK ──
+        st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
+        render_section_banner("☀️", "NY Session — 0DTE Options", "9:00 AM structural signal", "#ff9100")
+        render_section_banner("🎯", "9:00 AM Decision", "Where is price in the ladder?")
         
         # Auto-fill from live price if available
         default_price = 6865.0
@@ -3087,7 +2388,7 @@ def main():
         # ============================================================
         # LINE LADDER WITH PRICE POSITION
         # ============================================================
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
         render_section_banner("📊", "9 AM Line Ladder", "Price position relative to structural levels", "#00d4ff")
         
         if ny_ladder:
@@ -3106,7 +2407,7 @@ def main():
         # OPTIONS TRADE CARD
         # ============================================================
         if trade_direction:
-            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+            st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
             render_section_banner("📋", "0DTE Trade Setup", "Entry • Stop • Targets • Premium estimates", "#00e676")
             
             # Calculate strike: 20 points OTM, rounded to nearest 5
@@ -3283,92 +2584,66 @@ def main():
             ]
             render_scenario_cards(scenario_data, num_contracts)
             
-            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+            st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
             
-            # Trade card — split into separate markdown calls for reliable rendering
+            # Trade card — v2 unified card
             trade_color = '#ff5252' if trade_direction == 'PUT' else '#00e676'
             trade_icon = '🔻' if trade_direction == 'PUT' else '🔺'
-            trade_class = 'trade-card-bear' if trade_direction == 'PUT' else 'trade-card-bull'
             
-            render_section_banner("📋", "Trade Card", "Your complete trade plan at a glance", "#00e676")
+            render_section_banner("📋", "Trade Card", "Complete trade plan")
             
-            # Header
             st.markdown(f"""
-            <div style="display:flex; justify-content:space-between; align-items:center; 
-                        padding: 16px 20px; margin: 0;
-                        background: linear-gradient(145deg, rgba(14,20,36,0.95), rgba(8,13,22,0.98));
-                        border: 2px solid {trade_color}33; border-bottom: none;
-                        border-radius: 14px 14px 0 0;">
-                <span style="font-family: Orbitron, monospace; font-size: 1.4rem; color: {trade_color}; letter-spacing: 2px;">
-                    {trade_icon} BUY {trade_direction} — SPX {strike}
-                </span>
-                <span style="font-family: JetBrains Mono, monospace; color: #3a4a6a; font-size: 0.8rem;">
-                    {otm_distance:.0f}pt OTM • 0DTE • {premium_source}
-                </span>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Premium / Contracts / Risk row
-            st.markdown(f"""
-            <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap: 0; 
-                        border-left: 2px solid {trade_color}33; border-right: 2px solid {trade_color}33;
-                        background: rgba(10,15,26,0.95);">
-                <div style="text-align:center; padding: 14px; border-right: 1px solid rgba(30,45,74,0.3);">
-                    <div style="font-family: Rajdhani, sans-serif; color: #3a4a6a; font-size: 0.7rem; text-transform:uppercase; letter-spacing: 2px;">Premium</div>
-                    <div style="font-family: JetBrains Mono, monospace; color: #ccd6f6; font-size: 1.4rem; font-weight:700;">${final_premium:.2f}</div>
-                    <div style="font-family: JetBrains Mono, monospace; color: #3a4a6a; font-size: 0.7rem;">${cost_per_contract:.0f} / contract</div>
+            <div class="tc" style="border-color:{trade_color}20;">
+                <div class="tc-header">
+                    <span class="tc-title" style="color:{trade_color};">{trade_icon} BUY {trade_direction} — SPX {strike}</span>
+                    <span class="tc-meta">{otm_distance:.0f}pt OTM • 0DTE • {premium_source}</span>
                 </div>
-                <div style="text-align:center; padding: 14px; border-right: 1px solid rgba(30,45,74,0.3);">
-                    <div style="font-family: Rajdhani, sans-serif; color: #3a4a6a; font-size: 0.7rem; text-transform:uppercase; letter-spacing: 2px;">Contracts</div>
-                    <div style="font-family: JetBrains Mono, monospace; color: #ccd6f6; font-size: 1.4rem; font-weight:700;">{num_contracts}</div>
-                    <div style="font-family: JetBrains Mono, monospace; color: #3a4a6a; font-size: 0.7rem;">× ${cost_per_contract:.0f} ea</div>
+                <div class="tc-grid">
+                    <div class="tc-cell">
+                        <div class="tc-cell-label">Premium</div>
+                        <div class="tc-cell-val" style="color:var(--t1);">${final_premium:.2f}</div>
+                        <div class="tc-cell-sub">${cost_per_contract:.0f}/contract</div>
+                    </div>
+                    <div class="tc-cell">
+                        <div class="tc-cell-label">Contracts</div>
+                        <div class="tc-cell-val" style="color:var(--t1);">{num_contracts}</div>
+                        <div class="tc-cell-sub">× ${cost_per_contract:.0f} ea</div>
+                    </div>
+                    <div class="tc-cell">
+                        <div class="tc-cell-label">Total Risk</div>
+                        <div class="tc-cell-val" style="color:var(--red);">${total_cost:,.0f}</div>
+                        <div class="tc-cell-sub">Max loss = premium</div>
+                    </div>
                 </div>
-                <div style="text-align:center; padding: 14px;">
-                    <div style="font-family: Rajdhani, sans-serif; color: #3a4a6a; font-size: 0.7rem; text-transform:uppercase; letter-spacing: 2px;">Total Risk</div>
-                    <div style="font-family: JetBrains Mono, monospace; color: #ff1744; font-size: 1.4rem; font-weight:700;">${total_cost:,.0f}</div>
-                    <div style="font-family: JetBrains Mono, monospace; color: #3a4a6a; font-size: 0.7rem;">Max loss = premium</div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Stop / TP1 / TP2 row
-            st.markdown(f"""
-            <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap: 0;
-                        border: 2px solid {trade_color}33; border-top: 1px solid rgba(30,45,74,0.3);
-                        border-radius: 0 0 14px 14px;
-                        background: rgba(10,15,26,0.95);">
-                <div style="text-align:center; padding: 14px; border-right: 1px solid rgba(30,45,74,0.3);
-                            background: rgba(255,23,68,0.04);">
-                    <div style="font-family: Rajdhani, sans-serif; color: #ff1744; font-size: 0.7rem; text-transform:uppercase; letter-spacing: 2px;">Stop Loss (SPX)</div>
-                    <div style="font-family: JetBrains Mono, monospace; color: #ff1744; font-size: 1.3rem; font-weight:700;">{stop_price:.2f}</div>
-                    <div style="font-family: JetBrains Mono, monospace; color: #3a4a6a; font-size: 0.7rem;">{stop_line['short'] if stop_line else 'Fixed'} • {abs(current_price - stop_price):.1f}pt</div>
-                </div>
-                <div style="text-align:center; padding: 14px; border-right: 1px solid rgba(30,45,74,0.3);
-                            background: rgba(0,230,118,0.04);">
-                    <div style="font-family: Rajdhani, sans-serif; color: #00e676; font-size: 0.7rem; text-transform:uppercase; letter-spacing: 2px;">Target 1 (SPX)</div>
-                    <div style="font-family: JetBrains Mono, monospace; color: #00e676; font-size: 1.3rem; font-weight:700;">{tp1:.2f}</div>
-                    <div style="font-family: JetBrains Mono, monospace; color: #3a4a6a; font-size: 0.7rem;">{tp1_name} • {abs(current_price - tp1):.1f}pt</div>
-                </div>
-                <div style="text-align:center; padding: 14px;
-                            background: rgba(0,230,118,0.04);">
-                    <div style="font-family: Rajdhani, sans-serif; color: #00e676; font-size: 0.7rem; text-transform:uppercase; letter-spacing: 2px;">Target 2 (SPX)</div>
-                    <div style="font-family: JetBrains Mono, monospace; color: #00e676; font-size: 1.3rem; font-weight:700;">{tp2:.2f}</div>
-                    <div style="font-family: JetBrains Mono, monospace; color: #3a4a6a; font-size: 0.7rem;">{tp2_name} • {abs(current_price - tp2):.1f}pt</div>
+                <div class="tc-grid" style="border-top:1px solid var(--border);">
+                    <div class="tc-cell" style="background:rgba(255,23,68,0.03);">
+                        <div class="tc-cell-label" style="color:var(--red);">Stop Loss</div>
+                        <div class="tc-cell-val" style="color:var(--red);">{stop_price:.2f}</div>
+                        <div class="tc-cell-sub">{stop_line['short'] if stop_line else 'Fixed'} • {abs(current_price - stop_price):.1f}pt</div>
+                    </div>
+                    <div class="tc-cell" style="background:rgba(0,230,118,0.03);">
+                        <div class="tc-cell-label" style="color:var(--green);">Target 1</div>
+                        <div class="tc-cell-val" style="color:var(--green);">{tp1:.2f}</div>
+                        <div class="tc-cell-sub">{tp1_name} • {abs(current_price - tp1):.1f}pt</div>
+                    </div>
+                    <div class="tc-cell" style="background:rgba(0,230,118,0.03);">
+                        <div class="tc-cell-label" style="color:var(--green);">Target 2</div>
+                        <div class="tc-cell-val" style="color:var(--green);">{tp2:.2f}</div>
+                        <div class="tc-cell-sub">{tp2_name} • {abs(current_price - tp2):.1f}pt</div>
+                    </div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
             
             # Execution rules
             st.markdown(f"""
-            <div class="rules-box">
-                <div style="font-family: Orbitron, monospace; color: #ffd740; font-size: 0.9rem; margin-bottom: 10px; letter-spacing: 2px;">
-                    ⏰ EXECUTION RULES
-                </div>
-                <div style="font-family: JetBrains Mono, monospace; color: #8892b0; font-size: 0.8rem; line-height: 2;">
+            <div class="rules">
+                <div class="rules-title">⏰ EXECUTION RULES</div>
+                <div class="rules-body">
                     9:00 AM — DECISION. Read ladder position. Determine bias.<br>
                     9:05 AM — ENTRY. Let opening IV settle. Buy 3× SPX {strike} {'P' if trade_direction == 'PUT' else 'C'} @ ~${final_premium:.2f}<br>
-                    STOP — Close ALL 3 contracts if SPX {'rises above' if trade_direction == 'PUT' else 'drops below'} {stop_price:.2f} ({stop_line['short'] if stop_line else 'N/A'})<br>
-                    TP1 — Close ALL 3 contracts at SPX {tp1:.2f} ({tp1_name})<br>
+                    STOP — Close ALL 3 if SPX {'rises above' if trade_direction == 'PUT' else 'drops below'} {stop_price:.2f} ({stop_line['short'] if stop_line else 'N/A'})<br>
+                    TP1 — Close ALL 3 at SPX {tp1:.2f} ({tp1_name})<br>
                     TP2 — If TP1 missed, hold for {tp2:.2f} ({tp2_name})<br>
                     TIME STOP — Close by 11:00 AM CT if trade not working
                 </div>
@@ -3377,10 +2652,10 @@ def main():
         
         else:
             # No clear direction
-            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+            st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
             st.markdown("""
-            <div class="signal-box-neutral" style="animation: pulse-border-neutral 3s ease-in-out infinite, fade-in-up 0.5s ease;">
-                <div style="font-family: Orbitron, monospace; color: #ffd740; font-size: 1.2rem; letter-spacing: 2px;">
+            <div class="sig neutral">
+                <div style="font-family: Outfit, sans-serif; color: #ffd740; font-size: 1.2rem; letter-spacing: 2px;">
                     ⏸️ NO TRADE — WAIT FOR CLARITY
                 </div>
                 <div style="font-family: Rajdhani, sans-serif; color: #8892b0; font-size: 1rem; margin-top: 12px;">
@@ -3392,7 +2667,7 @@ def main():
         # ============================================================
         # CONFLUENCE SCORE
         # ============================================================
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
         render_section_banner("🔗", "Confluence Score", "5-factor alignment check", "#b388ff")
         
         # Auto-detect confluence from candle data
@@ -3508,13 +2783,13 @@ def main():
                                confluence['recommendation'], confluence['color'])
     
     # ============================================================
-    # TAB 4: TRADE LOG — Daily Journal + Persistent Trade Storage
+    # TAB 3: TRADE LOG — Daily Journal + Persistent Trade Storage
     # ============================================================
-    with tab4:
+    with tab3:
         render_section_banner("📋", "Trade Log & Journal", "Daily journal • Trade tracking • Performance analytics", "#00d4ff")
         st.markdown("*Daily journal • Trade tracking • Performance analytics*")
         
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
         
         # ── File paths ──
         import os
@@ -3648,7 +2923,7 @@ def main():
                         <div style="padding: 10px 14px; margin: 4px 0; border-left: 3px solid rgba(0,212,255,0.3);
                                     background: rgba(255,255,255,0.02); border-radius: 0 8px 8px 0;">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <span style="font-family: Orbitron, monospace; color: #00d4ff; font-size: 0.8rem;">{jd}</span>
+                                <span style="font-family: Outfit, sans-serif; color: #00d4ff; font-size: 0.8rem;">{jd}</span>
                                 <span style="font-size: 0.75rem;">{tags_str}</span>
                             </div>
                             <div style="font-family: Rajdhani, sans-serif; color: #8892b0; font-size: 0.85rem; margin-top: 4px;">
@@ -3658,8 +2933,8 @@ def main():
                         """, unsafe_allow_html=True)
         
         # ── SECTION DIVIDER ──
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
         
         # ── TRADE LOG SECTION ──
         render_section_banner("💰", "Trade Log", "Record and track every trade", "#00e676")
@@ -3762,7 +3037,7 @@ def main():
         
         # ── Performance Dashboard ──
         if all_trades:
-            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+            st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
             render_section_banner("📊", "Performance Dashboard", "Equity curve • Win rate • Statistics", "#00d4ff")
             
             df_trades = pd.DataFrame(all_trades)
@@ -3808,7 +3083,7 @@ def main():
             
             # ── Equity Curve Chart ──
             if len(df_trades_sorted) >= 2:
-                st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+                st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
                 render_section_banner("📈", "Equity Curve", "Cumulative P&L over time", "#00d4ff")
                 
                 eq_fig = go.Figure()
@@ -3867,7 +3142,7 @@ def main():
             
             # ── Win Rate by Confluence ──
             if len(df_trades) >= 3:
-                st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+                st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
                 st.markdown("### 🎯 Win Rate by Confluence Score")
                 
                 conf_groups = df_trades.groupby(df_trades['confluence'].apply(lambda x: f"{x:.0f}+")).agg(
@@ -3886,7 +3161,7 @@ def main():
                     st.markdown(f"""
                     <div style="display:flex; align-items:center; gap: 12px; padding: 8px 14px; margin: 3px 0;
                                 background: rgba(255,255,255,0.02); border-radius: 8px;">
-                        <span style="font-family: Orbitron, monospace; color: #ccd6f6; font-size: 0.85rem; min-width: 50px;">
+                        <span style="font-family: Outfit, sans-serif; color: #ccd6f6; font-size: 0.85rem; min-width: 50px;">
                             {row['confluence']}
                         </span>
                         <div style="flex:1; height: 20px; background: rgba(255,255,255,0.03); border-radius: 4px; overflow:hidden;">
@@ -3906,7 +3181,7 @@ def main():
                     """, unsafe_allow_html=True)
             
             # ── Trade History Table ──
-            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+            st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
             st.markdown("### 📋 Trade History")
             
             # Format for display
@@ -3928,7 +3203,7 @@ def main():
             )
             
             # ── Delete Trade ──
-            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+            st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
             with st.expander("🗑️ Delete a Trade"):
                 if all_trades:
                     trade_options = [f"{t['date']} | {t['direction']} | ${t['pnl']:+,.0f} | {t.get('notes','')[:30]}" for t in all_trades]
@@ -3957,7 +3232,7 @@ def main():
         else:
             st.markdown("""
             <div class="signal-box-neutral" style="text-align:center; animation: none;">
-                <div style="font-family: Orbitron, monospace; color: #ffd740; font-size: 1.1rem; letter-spacing: 2px;">
+                <div style="font-family: Outfit, sans-serif; color: #ffd740; font-size: 1.1rem; letter-spacing: 2px;">
                     NO TRADES LOGGED YET
                 </div>
                 <div style="font-family: Rajdhani, sans-serif; color: #8892b0; font-size: 1rem; margin-top: 10px;">
