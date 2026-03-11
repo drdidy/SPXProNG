@@ -2054,76 +2054,129 @@ def main():
         confirmation_passed = None  # None = no data, True = confirmed, False = wait
         
         if trade_direction and entry_line:
-            candles_830 = st.session_state.get('last_fetch_candles', None)
-            if candles_830 is not None and len(candles_830) > 0:
-                # Find the 8:30 AM candle
-                candle_830 = None
-                for _, row in candles_830.iterrows():
-                    ct = row['datetime']
-                    if ct.hour == 8 and ct.minute == 30 and ct.date() == next_date:
-                        candle_830 = row
-                        break
+            # Fetch SPX 8:30 candle directly — no offset needed since entry lines are in SPX
+            spx_830_candle = None
+            spx_830_source = ""
+            
+            try:
+                import yfinance as yf
+                import pytz
                 
-                if candle_830 is not None:
-                    c_open = candle_830['open']
-                    c_high = candle_830['high']
-                    c_low = candle_830['low']
-                    c_close = candle_830['close']
-                    is_bullish_candle = c_close > c_open
-                    is_bearish_candle = c_close < c_open
-                    entry_val = entry_line['value']
+                # Fetch SPX 30-min candles for today
+                spx_ticker = yf.Ticker("^GSPC")
+                spx_hist = spx_ticker.history(period="1d", interval="30m")
+                
+                if len(spx_hist) > 0:
+                    spx_hist = spx_hist.reset_index()
+                    # Normalize datetime column
+                    dt_col = [c for c in spx_hist.columns if 'date' in c.lower() or 'datetime' in c.lower()][0]
+                    spx_hist = spx_hist.rename(columns={dt_col: 'datetime'})
+                    spx_hist['datetime'] = pd.to_datetime(spx_hist['datetime'])
                     
-                    if trade_direction == "PUT":
-                        # For PUTS: 8:30 must wick UP to ascending line above AND close as GREEN candle below it
-                        # Green candle (bullish) closing below = buyers TRIED to break through but FAILED. Line held.
-                        # Red candle (bearish) closing below = just selling, no proof line was tested. WAIT.
-                        touched_line = c_high >= (entry_val - 1.0)  # within 1pt tolerance
-                        closed_below = c_close < entry_val
-                        
-                        if touched_line and is_bullish_candle and closed_below:
-                            confirmation_status = "CONFIRMED ✅"
-                            confirmation_detail = f"8:30 wicked to {c_high:.2f} (line {entry_val:.2f}), closed GREEN at {c_close:.2f} below it. Buyers tried and failed. Line rejected."
-                            confirmation_passed = True
-                        elif touched_line and is_bearish_candle and closed_below:
-                            confirmation_status = "WAIT ⏸️"
-                            confirmation_detail = f"8:30 touched {entry_val:.2f} but closed RED at {c_close:.2f}. Just selling, not a true test of the line. Wait."
-                            confirmation_passed = False
-                        elif touched_line and not closed_below:
-                            confirmation_status = "WAIT ⏸️"
-                            confirmation_detail = f"8:30 touched {entry_val:.2f} and closed ABOVE it at {c_close:.2f}. Line broken. Do not short."
-                            confirmation_passed = False
-                        elif not touched_line:
-                            confirmation_status = "NOT TESTED"
-                            confirmation_detail = f"8:30 high was {c_high:.2f}, did not reach entry line at {entry_val:.2f}. No test occurred."
-                            confirmation_passed = None
+                    # Convert to CT if timezone-aware
+                    if spx_hist['datetime'].dt.tz is not None:
+                        ct_tz = pytz.timezone('America/Chicago')
+                        spx_hist['datetime'] = spx_hist['datetime'].dt.tz_convert(ct_tz).dt.tz_localize(None)
                     
-                    elif trade_direction == "CALL":
-                        # For CALLS: 8:30 must wick DOWN to descending line below AND close as RED candle above it
-                        # Red candle (bearish) closing above = sellers TRIED to break through but FAILED. Line held.
-                        # Green candle (bullish) closing above = just buying, no proof line was tested. WAIT.
-                        touched_line = c_low <= (entry_val + 1.0)  # within 1pt tolerance
-                        closed_above = c_close > entry_val
-                        
-                        if touched_line and is_bearish_candle and closed_above:
-                            confirmation_status = "CONFIRMED ✅"
-                            confirmation_detail = f"8:30 wicked to {c_low:.2f} (line {entry_val:.2f}), closed RED at {c_close:.2f} above it. Sellers tried and failed. Line rejected."
-                            confirmation_passed = True
-                        elif touched_line and is_bullish_candle and closed_above:
-                            confirmation_status = "WAIT ⏸️"
-                            confirmation_detail = f"8:30 touched {entry_val:.2f} but closed GREEN at {c_close:.2f}. Just buying, not a true test of the line. Wait."
-                            confirmation_passed = False
-                        elif touched_line and not closed_above:
-                            confirmation_status = "WAIT ⏸️"
-                            confirmation_detail = f"8:30 touched {entry_val:.2f} and closed BELOW it at {c_close:.2f}. Line broken. Do not go long."
-                            confirmation_passed = False
-                        elif not touched_line:
-                            confirmation_status = "NOT TESTED"
-                            confirmation_detail = f"8:30 low was {c_low:.2f}, did not reach entry line at {entry_val:.2f}. No test occurred."
-                            confirmation_passed = None
-                else:
-                    confirmation_detail = "8:30 candle not yet available. Check after 9:00 AM."
+                    # Normalize column names
+                    spx_hist.columns = [c.lower().replace(' ', '_') for c in spx_hist.columns]
+                    
+                    # Find the 8:30 AM candle
+                    for _, row in spx_hist.iterrows():
+                        ct = row['datetime']
+                        if ct.hour == 8 and ct.minute == 30 and ct.date() == next_date:
+                            spx_830_candle = row
+                            spx_830_source = "SPX (^GSPC)"
+                            break
+                        # yfinance may label it as 9:30 ET = 8:30 CT
+                        elif ct.hour == 9 and ct.minute == 30 and ct.date() == next_date:
+                            spx_830_candle = row
+                            spx_830_source = "SPX (^GSPC) — 9:30 ET = 8:30 CT"
+                            break
+            except Exception as e:
+                spx_830_source = f"SPX fetch failed: {str(e)[:60]}"
+            
+            # Fallback to ES candles with offset if SPX not available
+            if spx_830_candle is None:
+                es_candles = st.session_state.get('last_fetch_candles', None)
+                es_offset_830 = st.session_state.get('_es_offset', 0.0)
+                
+                if es_candles is not None and len(es_candles) > 0:
+                    for _, row in es_candles.iterrows():
+                        ct = row['datetime']
+                        if ct.hour == 8 and ct.minute == 30 and ct.date() == next_date:
+                            # Convert ES to SPX by subtracting offset
+                            spx_830_candle = pd.Series({
+                                'open': row['open'] - es_offset_830,
+                                'high': row['high'] - es_offset_830,
+                                'low': row['low'] - es_offset_830,
+                                'close': row['close'] - es_offset_830,
+                            })
+                            spx_830_source = f"ES→SPX (offset {es_offset_830:+.2f})"
+                            break
+            
+            if spx_830_candle is not None:
+                c_open = float(spx_830_candle['open'])
+                c_high = float(spx_830_candle['high'])
+                c_low = float(spx_830_candle['low'])
+                c_close = float(spx_830_candle['close'])
+                is_bullish_candle = c_close > c_open
+                is_bearish_candle = c_close < c_open
+                entry_val = entry_line['value']
+                
+                # Debug: show what the app sees
+                candle_color = "🟢 GREEN" if is_bullish_candle else "🔴 RED"
+                st.caption(f"8:30 candle ({spx_830_source}): O {c_open:.2f} H {c_high:.2f} L {c_low:.2f} C {c_close:.2f} — {candle_color} | Entry line: {entry_val:.2f}")
+                
+                if trade_direction == "PUT":
+                    # For PUTS: 8:30 must wick UP to ascending line above AND close as GREEN candle below it
+                    # Green candle (bullish) closing below = buyers TRIED to break through but FAILED. Line held.
+                    # Red candle (bearish) closing below = just selling, no proof line was tested. WAIT.
+                    touched_line = c_high >= (entry_val - 1.0)  # within 1pt tolerance
+                    closed_below = c_close < entry_val
+                    
+                    if touched_line and is_bullish_candle and closed_below:
+                        confirmation_status = "CONFIRMED ✅"
+                        confirmation_detail = f"8:30 wicked to {c_high:.2f} (line {entry_val:.2f}), closed GREEN at {c_close:.2f} below it. Buyers tried and failed. Line rejected."
+                        confirmation_passed = True
+                    elif touched_line and is_bearish_candle and closed_below:
+                        confirmation_status = "WAIT ⏸️"
+                        confirmation_detail = f"8:30 touched {entry_val:.2f} but closed RED at {c_close:.2f}. Just selling, not a true test of the line. Wait."
+                        confirmation_passed = False
+                    elif touched_line and not closed_below:
+                        confirmation_status = "WAIT ⏸️"
+                        confirmation_detail = f"8:30 touched {entry_val:.2f} and closed ABOVE it at {c_close:.2f}. Line broken. Do not short."
+                        confirmation_passed = False
+                    elif not touched_line:
+                        confirmation_status = "NOT TESTED"
+                        confirmation_detail = f"8:30 high was {c_high:.2f}, did not reach entry line at {entry_val:.2f}. No test occurred."
+                        confirmation_passed = None
+                
+                elif trade_direction == "CALL":
+                    # For CALLS: 8:30 must wick DOWN to descending line below AND close as RED candle above it
+                    # Red candle (bearish) closing above = sellers TRIED to break through but FAILED. Line held.
+                    # Green candle (bullish) closing above = just buying, no proof line was tested. WAIT.
+                    touched_line = c_low <= (entry_val + 1.0)  # within 1pt tolerance
+                    closed_above = c_close > entry_val
+                    
+                    if touched_line and is_bearish_candle and closed_above:
+                        confirmation_status = "CONFIRMED ✅"
+                        confirmation_detail = f"8:30 wicked to {c_low:.2f} (line {entry_val:.2f}), closed RED at {c_close:.2f} above it. Sellers tried and failed. Line rejected."
+                        confirmation_passed = True
+                    elif touched_line and is_bullish_candle and closed_above:
+                        confirmation_status = "WAIT ⏸️"
+                        confirmation_detail = f"8:30 touched {entry_val:.2f} but closed GREEN at {c_close:.2f}. Just buying, not a true test of the line. Wait."
+                        confirmation_passed = False
+                    elif touched_line and not closed_above:
+                        confirmation_status = "WAIT ⏸️"
+                        confirmation_detail = f"8:30 touched {entry_val:.2f} and closed BELOW it at {c_close:.2f}. Line broken. Do not go long."
+                        confirmation_passed = False
+                    elif not touched_line:
+                        confirmation_status = "NOT TESTED"
+                        confirmation_detail = f"8:30 low was {c_low:.2f}, did not reach entry line at {entry_val:.2f}. No test occurred."
+                        confirmation_passed = None
             else:
-                confirmation_detail = "No candle data. Fetch data in sidebar or check 8:30 candle manually."
+                confirmation_detail = f"8:30 candle not available. {spx_830_source if spx_830_source else 'Fetch data or check manually.'}"
         
         # Signal display
         sig_color = '#00e676' if signal_class == 'bull' else '#ff1744' if signal_class == 'bear' else '#ffd740'
