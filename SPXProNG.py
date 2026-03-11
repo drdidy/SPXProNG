@@ -1968,6 +1968,7 @@ def main():
         trade_direction = None  # 'PUT' or 'CALL'
         stop_line = None
         target_lines = []
+        entry_line = None  # NEW: the structural line that defines entry
         
         if nearest_above and nearest_below:
             dist_above = nearest_above['value'] - current_price
@@ -1982,36 +1983,40 @@ def main():
                 signal = "BEARISH — BUY PUTS"
                 signal_class = "bear"
                 trade_direction = "PUT"
-                stop_line = nearest_above  # line above = invalidation
+                entry_line = nearest_above  # closest ascending line above = entry zone
+                stop_line = nearest_above  # stop if price breaks above this line
                 target_lines = [l for l in lines_below if l['direction'] == 'descending'][:2]
-                signal_detail = f"Price {current_price:.2f} is BELOW all ascending lines. Buyers trapped above. Stop: {stop_line['value']:.2f} ({stop_line['short']})"
+                signal_detail = f"Price {current_price:.2f} below all ascending lines. Entry zone: {entry_line['short']} @ {entry_line['value']:.2f}. Targets: descending lines below."
                 
             elif all_desc_values and current_price > max(all_desc_values) and all_asc_values and current_price > max(all_asc_values):
                 # Above ALL lines = strong bullish
                 signal = "BULLISH TREND — BUY CALLS"
                 signal_class = "bull"
                 trade_direction = "CALL"
+                entry_line = nearest_below  # closest descending line below = entry zone
                 stop_line = nearest_below
-                target_lines = []  # no ceiling, use fixed targets
-                signal_detail = f"Price {current_price:.2f} is ABOVE all lines. Strong trend day. Stop: {stop_line['value']:.2f} ({stop_line['short']})"
+                target_lines = []
+                signal_detail = f"Price {current_price:.2f} above ALL lines. Strong trend day. Entry zone: {entry_line['short']} @ {entry_line['value']:.2f}."
                 
             elif all_desc_values and current_price < min(all_desc_values):
                 # Below ALL lines = strong bearish
                 signal = "BEARISH TREND — BUY PUTS"
                 signal_class = "bear"
                 trade_direction = "PUT"
+                entry_line = nearest_above
                 stop_line = nearest_above
                 target_lines = []
-                signal_detail = f"Price {current_price:.2f} is BELOW all lines including descending. Stop: {stop_line['value']:.2f} ({stop_line['short']})"
+                signal_detail = f"Price {current_price:.2f} below ALL lines including descending. Entry zone: {entry_line['short']} @ {entry_line['value']:.2f}."
                 
             elif all_asc_values and current_price > max(all_asc_values):
                 # Above all ascending = bullish
                 signal = "BULLISH — BUY CALLS"
                 signal_class = "bull"
                 trade_direction = "CALL"
+                entry_line = nearest_below  # closest descending line below
                 stop_line = nearest_below
                 target_lines = [l for l in lines_above if l['direction'] == 'ascending'][:2]
-                signal_detail = f"Price {current_price:.2f} is ABOVE all ascending lines. Stop: {stop_line['value']:.2f} ({stop_line['short']})"
+                signal_detail = f"Price {current_price:.2f} above all ascending lines. Entry zone: {entry_line['short']} @ {entry_line['value']:.2f}."
                 
             elif nearest_above['direction'] == 'ascending' and nearest_below['direction'] == 'descending':
                 # Between ascending above and descending below — choppy, wait
@@ -2024,22 +2029,124 @@ def main():
                 signal = "BEARISH LEAN — BUY PUTS"
                 signal_class = "bear"
                 trade_direction = "PUT"
+                entry_line = nearest_above  # descending line above = entry zone for puts
                 stop_line = nearest_above
                 target_lines = [l for l in lines_below][:2]
-                signal_detail = f"Descending resistance at {nearest_above['value']:.2f} above. Stop: {stop_line['value']:.2f}"
+                signal_detail = f"Descending resistance at {nearest_above['value']:.2f}. Entry zone: {entry_line['short']} @ {entry_line['value']:.2f}."
                 
             elif nearest_below['direction'] == 'ascending':
                 # Ascending line below = support, bullish lean
                 signal = "BULLISH LEAN — BUY CALLS"
                 signal_class = "bull"
                 trade_direction = "CALL"
+                entry_line = nearest_below  # ascending line below = entry zone for calls
                 stop_line = nearest_below
                 target_lines = [l for l in lines_above][:2]
-                signal_detail = f"Ascending support at {nearest_below['value']:.2f} below. Stop: {stop_line['value']:.2f}"
+                signal_detail = f"Ascending support at {nearest_below['value']:.2f}. Entry zone: {entry_line['short']} @ {entry_line['value']:.2f}."
+        
+        # ============================================================
+        # 8:30 AM CONFIRMATION RULE
+        # ============================================================
+        # The 8:30 candle must TEST the structural entry line and get REJECTED.
+        # If it tests and closes WITH the line (not rejected), WAIT — no trade.
+        confirmation_status = "PENDING"
+        confirmation_detail = ""
+        confirmation_passed = None  # None = no data, True = confirmed, False = wait
+        
+        if trade_direction and entry_line:
+            candles_830 = st.session_state.get('last_fetch_candles', None)
+            if candles_830 is not None and len(candles_830) > 0:
+                # Find the 8:30 AM candle
+                candle_830 = None
+                for _, row in candles_830.iterrows():
+                    ct = row['datetime']
+                    if ct.hour == 8 and ct.minute == 30 and ct.date() == next_date:
+                        candle_830 = row
+                        break
+                
+                if candle_830 is not None:
+                    c_open = candle_830['open']
+                    c_high = candle_830['high']
+                    c_low = candle_830['low']
+                    c_close = candle_830['close']
+                    is_bullish_candle = c_close > c_open
+                    is_bearish_candle = c_close < c_open
+                    entry_val = entry_line['value']
+                    
+                    if trade_direction == "PUT":
+                        # For PUTS: 8:30 must wick UP to ascending line above AND close as GREEN candle below it
+                        # Green candle (bullish) closing below = buyers TRIED to break through but FAILED. Line held.
+                        # Red candle (bearish) closing below = just selling, no proof line was tested. WAIT.
+                        touched_line = c_high >= (entry_val - 1.0)  # within 1pt tolerance
+                        closed_below = c_close < entry_val
+                        
+                        if touched_line and is_bullish_candle and closed_below:
+                            confirmation_status = "CONFIRMED ✅"
+                            confirmation_detail = f"8:30 wicked to {c_high:.2f} (line {entry_val:.2f}), closed GREEN at {c_close:.2f} below it. Buyers tried and failed. Line rejected."
+                            confirmation_passed = True
+                        elif touched_line and is_bearish_candle and closed_below:
+                            confirmation_status = "WAIT ⏸️"
+                            confirmation_detail = f"8:30 touched {entry_val:.2f} but closed RED at {c_close:.2f}. Just selling, not a true test of the line. Wait."
+                            confirmation_passed = False
+                        elif touched_line and not closed_below:
+                            confirmation_status = "WAIT ⏸️"
+                            confirmation_detail = f"8:30 touched {entry_val:.2f} and closed ABOVE it at {c_close:.2f}. Line broken. Do not short."
+                            confirmation_passed = False
+                        elif not touched_line:
+                            confirmation_status = "NOT TESTED"
+                            confirmation_detail = f"8:30 high was {c_high:.2f}, did not reach entry line at {entry_val:.2f}. No test occurred."
+                            confirmation_passed = None
+                    
+                    elif trade_direction == "CALL":
+                        # For CALLS: 8:30 must wick DOWN to descending line below AND close as RED candle above it
+                        # Red candle (bearish) closing above = sellers TRIED to break through but FAILED. Line held.
+                        # Green candle (bullish) closing above = just buying, no proof line was tested. WAIT.
+                        touched_line = c_low <= (entry_val + 1.0)  # within 1pt tolerance
+                        closed_above = c_close > entry_val
+                        
+                        if touched_line and is_bearish_candle and closed_above:
+                            confirmation_status = "CONFIRMED ✅"
+                            confirmation_detail = f"8:30 wicked to {c_low:.2f} (line {entry_val:.2f}), closed RED at {c_close:.2f} above it. Sellers tried and failed. Line rejected."
+                            confirmation_passed = True
+                        elif touched_line and is_bullish_candle and closed_above:
+                            confirmation_status = "WAIT ⏸️"
+                            confirmation_detail = f"8:30 touched {entry_val:.2f} but closed GREEN at {c_close:.2f}. Just buying, not a true test of the line. Wait."
+                            confirmation_passed = False
+                        elif touched_line and not closed_above:
+                            confirmation_status = "WAIT ⏸️"
+                            confirmation_detail = f"8:30 touched {entry_val:.2f} and closed BELOW it at {c_close:.2f}. Line broken. Do not go long."
+                            confirmation_passed = False
+                        elif not touched_line:
+                            confirmation_status = "NOT TESTED"
+                            confirmation_detail = f"8:30 low was {c_low:.2f}, did not reach entry line at {entry_val:.2f}. No test occurred."
+                            confirmation_passed = None
+                else:
+                    confirmation_detail = "8:30 candle not yet available. Check after 9:00 AM."
+            else:
+                confirmation_detail = "No candle data. Fetch data in sidebar or check 8:30 candle manually."
         
         # Signal display
         sig_color = '#00e676' if signal_class == 'bull' else '#ff1744' if signal_class == 'bear' else '#ffd740'
+        
+        # Modify signal if 8:30 confirmation failed
+        if confirmation_passed is False and trade_direction:
+            original_signal = signal
+            signal = f"⏸️ WAIT — 8:30 NOT REJECTED"
+            signal_class = "neutral"
+            signal_detail = f"{confirmation_detail} Original signal: {original_signal}"
+        
         render_signal_display(signal, signal_detail, signal_class)
+        
+        # Show 8:30 confirmation status
+        if trade_direction and entry_line:
+            conf_color = '#00e676' if confirmation_passed else '#ffd740' if confirmation_passed is None else '#ff1744'
+            st.markdown(f"""
+            <div style="background:var(--bg-card);border:1px solid var(--border);border-left:3px solid {conf_color};
+                        border-radius:12px;padding:14px 18px;margin:8px 0;">
+                <div style="font-family:JetBrains Mono;font-size:0.6rem;color:var(--t3);letter-spacing:3px;text-transform:uppercase;">8:30 AM Confirmation</div>
+                <div style="font-family:Outfit;font-weight:700;font-size:0.95rem;color:{conf_color};margin-top:4px;">{confirmation_status}</div>
+                <div style="font-family:JetBrains Mono;font-size:0.75rem;color:var(--t2);margin-top:6px;">{confirmation_detail}</div>
+            </div>""", unsafe_allow_html=True)
         
         # ============================================================
         # LINE LADDER WITH PRICE POSITION
@@ -2066,15 +2173,38 @@ def main():
             st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
             render_section_banner("📋", "0DTE Trade Setup", "Entry • Stop • Targets • Premium estimates", "#00e676")
             
-            # Calculate strike: 20 points OTM, rounded to nearest 5
-            if trade_direction == "PUT":
-                raw_strike = current_price - 20
-                strike = int(raw_strike // 5) * 5  # round down to nearest 5
+            # Calculate strike: 20pt OTM from the structural ENTRY LINE (not current price)
+            # Entry = the ascending line (for PUTS) or descending line (for CALLS)
+            # Strike = 20pt OTM from that entry level, rounded to nearest 5
+            if entry_line:
+                entry_level = entry_line['value']
+                if trade_direction == "PUT":
+                    raw_strike = entry_level - 20
+                    strike = int(raw_strike // 5) * 5
+                else:
+                    raw_strike = entry_level + 20
+                    strike = int((raw_strike + 4) // 5) * 5
             else:
-                raw_strike = current_price + 20
-                strike = int((raw_strike + 4) // 5) * 5  # round up to nearest 5
+                # Fallback: 20pt OTM from current price
+                if trade_direction == "PUT":
+                    strike = int((current_price - 20) // 5) * 5
+                else:
+                    strike = int((current_price + 20 + 4) // 5) * 5
             
             otm_distance = abs(strike - current_price)
+            
+            # Entry timing based on 8:30 confirmation
+            # If 8:30 touched and confirmed → enter at 9:05 (price already moving)
+            # If 8:30 didn't touch → 9:00 will do the touch → enter at 9:30 or 10:00
+            if confirmation_passed is True:
+                entry_timing = "9:05 AM"
+                entry_timing_detail = "8:30 confirmed rejection. Enter early — price already moving."
+            elif confirmation_passed is None:
+                entry_timing = "9:30–10:00 AM"
+                entry_timing_detail = "8:30 did not test the line. Wait for 9:00 to touch, then enter on confirmation."
+            else:
+                entry_timing = "WAIT"
+                entry_timing_detail = "8:30 test failed. Do not enter until line is properly tested and rejected."
             
             # Stop and targets (SPX levels)
             stop_price = stop_line['value'] if stop_line else (current_price + 10 if trade_direction == "PUT" else current_price - 10)
@@ -2120,8 +2250,13 @@ def main():
             except:
                 hours_now = 6.5  # default to 8:30 AM
             
-            # Hours at 9:05 AM entry
-            entry_dt = datetime.combine(next_date, dt_time(9, 5))
+            # Hours at entry — depends on 8:30 confirmation
+            if entry_timing == "9:05 AM":
+                entry_dt = datetime.combine(next_date, dt_time(9, 5))
+            elif entry_timing == "9:30–10:00 AM":
+                entry_dt = datetime.combine(next_date, dt_time(9, 45))  # midpoint estimate
+            else:
+                entry_dt = datetime.combine(next_date, dt_time(10, 0))  # conservative
             hours_at_entry = max(0.1, (market_close - entry_dt).total_seconds() / 3600)
             
             # Black-Scholes estimate (always available)
@@ -2214,9 +2349,9 @@ def main():
             
             # Source indicator
             if live_premium:
-                premium_source = "🔴 LIVE → Projected to 9:05 AM"
+                premium_source = f"🔴 LIVE → Projected to {entry_timing}"
             else:
-                premium_source = "📐 Estimated at 9:05 AM"
+                premium_source = f"📐 Estimated at {entry_timing}"
             
             # ============================================================
             # SCENARIO TABLE
@@ -2292,12 +2427,15 @@ def main():
             """, unsafe_allow_html=True)
             
             # Execution rules
+            entry_line_label = f"{entry_line['short']} @ {entry_line['value']:.2f}" if entry_line else "N/A"
             st.markdown(f"""
             <div class="rules">
                 <div class="rules-title">⏰ EXECUTION RULES</div>
                 <div class="rules-body">
-                    9:00 AM — DECISION. Read ladder position. Determine bias.<br>
-                    9:05 AM — ENTRY. Let opening IV settle. Buy 3× SPX {strike} {'P' if trade_direction == 'PUT' else 'C'} @ ~${final_premium:.2f}<br>
+                    ENTRY LINE — {entry_line_label} ({'ascending ↗ resistance' if trade_direction == 'PUT' else 'descending ↘ support'})<br>
+                    STRIKE — SPX {strike} {'P' if trade_direction == 'PUT' else 'C'} (20pt OTM from entry line)<br>
+                    TIMING — {entry_timing}. {entry_timing_detail}<br>
+                    ENTRY — Buy 3× SPX {strike} {'P' if trade_direction == 'PUT' else 'C'} @ ~${final_premium:.2f}<br>
                     STOP — Close ALL 3 if SPX {'rises above' if trade_direction == 'PUT' else 'drops below'} {stop_price:.2f} ({stop_line['short'] if stop_line else 'N/A'})<br>
                     TP1 — Close ALL 3 at SPX {tp1:.2f} ({tp1_name})<br>
                     TP2 — If TP1 missed, hold for {tp2:.2f} ({tp2_name})<br>
