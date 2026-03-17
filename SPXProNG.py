@@ -1348,6 +1348,51 @@ def detect_inflections(ny_candles: pd.DataFrame) -> dict:
     bounces.sort(key=lambda x: x['time'])
     rejections.sort(key=lambda x: x['time'])
     
+    # ============================================================
+    # AFTERNOON CHANNEL PRIORITIZATION
+    # ============================================================
+    # The 12:00 PM ET (11:00 AM CT) to 3:00 PM channel is where institutional positioning settles
+    # after morning noise and stop hunts clear out. These are the lines that 
+    # produce real reactions the next day.
+    #
+    # Split into afternoon (primary) and morning (secondary):
+    # - Afternoon bounces/rejections define the dominant channel
+    # - Morning inflections are kept as secondary context
+    
+    noon_hour = 11  # 12:00 PM ET = 11:00 AM CT (candle data is in CT)
+    
+    afternoon_bounces = [b for b in bounces if b['time'].hour >= noon_hour]
+    morning_bounces = [b for b in bounces if b['time'].hour < noon_hour]
+    afternoon_rejections = [r for r in rejections if r['time'].hour >= noon_hour]
+    morning_rejections = [r for r in rejections if r['time'].hour < noon_hour]
+    
+    # Tag each inflection with priority
+    for b in afternoon_bounces:
+        b['priority'] = 'primary'
+        b['session'] = 'afternoon'
+    for b in morning_bounces:
+        b['priority'] = 'secondary'
+        b['session'] = 'morning'
+    for r in afternoon_rejections:
+        r['priority'] = 'primary'
+        r['session'] = 'afternoon'
+    for r in morning_rejections:
+        r['priority'] = 'secondary'
+        r['session'] = 'morning'
+    
+    # Use afternoon channel as primary, fall back to full session if afternoon is empty
+    if afternoon_bounces or afternoon_rejections:
+        primary_bounces = afternoon_bounces
+        primary_rejections = afternoon_rejections
+    else:
+        # No afternoon inflections detected — use all
+        primary_bounces = bounces
+        primary_rejections = rejections
+        for b in primary_bounces:
+            b['priority'] = 'primary'
+        for r in primary_rejections:
+            r['priority'] = 'primary'
+    
     # Highest wick: highest HIGH of a BEARISH candle (close < open)
     # Only consider candles from 9:00 AM to 2:30 PM CT (exclude open/close noise)
     bearish_mask = closes < opens
@@ -1403,8 +1448,12 @@ def detect_inflections(ny_candles: pd.DataFrame) -> dict:
             }
     
     return {
-        'bounces': bounces,
-        'rejections': rejections,
+        'bounces': primary_bounces,          # Primary (afternoon channel)
+        'rejections': primary_rejections,     # Primary (afternoon channel)
+        'all_bounces': bounces,               # Full session (morning + afternoon)
+        'all_rejections': rejections,         # Full session (morning + afternoon)
+        'morning_bounces': morning_bounces,   # Morning only (secondary)
+        'morning_rejections': morning_rejections,
         'highest_wick': highest_wick,
         'lowest_wick': lowest_wick,
     }
@@ -1526,6 +1575,10 @@ def main():
                                 detected['bounces'] = apply_offset(detected['bounces'], es_offset)
                             if detected['rejections']:
                                 detected['rejections'] = apply_offset(detected['rejections'], es_offset)
+                            if detected.get('morning_bounces'):
+                                detected['morning_bounces'] = apply_offset(detected['morning_bounces'], es_offset)
+                            if detected.get('morning_rejections'):
+                                detected['morning_rejections'] = apply_offset(detected['morning_rejections'], es_offset)
                             if detected['highest_wick']:
                                 detected['highest_wick']['price'] -= es_offset
                             if detected['lowest_wick']:
@@ -1533,25 +1586,39 @@ def main():
                             st.caption(f"✅ Offset of {es_offset:+.2f} applied to all levels")
                         
                         st.markdown("---")
-                        st.markdown("### 🔍 Auto-Detected (SPX-adjusted)" if es_offset != 0 else "### 🔍 Auto-Detected")
+                        st.markdown("### 🎯 Afternoon Channel (12PM–3PM ET)" if es_offset == 0 else "### 🎯 Afternoon Channel (SPX-adjusted)")
+                        st.caption("Primary lines — where price settled after morning noise")
                         
-                        # Bounces
+                        # Primary bounces (afternoon)
                         if detected['bounces']:
-                            st.markdown(f"**Bounces found: {len(detected['bounces'])}**")
+                            st.markdown(f"**Bounces: {len(detected['bounces'])}**")
                             for b in detected['bounces']:
-                                st.caption(f"↗ {b['price']:.2f} @ {b['time'].strftime('%I:%M %p')}")
+                                tag = "🟢" if b.get('priority') == 'primary' else "⚪"
+                                st.caption(f"{tag} ↗ {b['price']:.2f} @ {b['time'].strftime('%I:%M %p')}")
                             bounces = detected['bounces']
                         else:
-                            st.caption("No bounces detected")
+                            st.caption("No afternoon bounces detected")
                         
-                        # Rejections
+                        # Primary rejections (afternoon)
                         if detected['rejections']:
-                            st.markdown(f"**Rejections found: {len(detected['rejections'])}**")
+                            st.markdown(f"**Rejections: {len(detected['rejections'])}**")
                             for r in detected['rejections']:
-                                st.caption(f"↘ {r['price']:.2f} @ {r['time'].strftime('%I:%M %p')}")
+                                tag = "🟢" if r.get('priority') == 'primary' else "⚪"
+                                st.caption(f"{tag} ↘ {r['price']:.2f} @ {r['time'].strftime('%I:%M %p')}")
                             rejections = detected['rejections']
                         else:
-                            st.caption("No rejections detected")
+                            st.caption("No afternoon rejections detected")
+                        
+                        # Show morning lines as secondary (collapsed)
+                        morning_b = detected.get('morning_bounces', [])
+                        morning_r = detected.get('morning_rejections', [])
+                        if morning_b or morning_r:
+                            with st.expander(f"🌅 Morning Lines ({len(morning_b)}B / {len(morning_r)}R) — secondary", expanded=False):
+                                st.caption("Pre-noon inflections. Lower priority for next-day projections.")
+                                for b in morning_b:
+                                    st.caption(f"⚪ ↗ {b['price']:.2f} @ {b['time'].strftime('%I:%M %p')}")
+                                for r in morning_r:
+                                    st.caption(f"⚪ ↘ {r['price']:.2f} @ {r['time'].strftime('%I:%M %p')}")
                         
                         # Highest wick (bearish candle)
                         if detected['highest_wick']:
