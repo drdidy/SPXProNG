@@ -1114,7 +1114,7 @@ def calculate_confluence(asian_aligns: bool, london_sweep: bool,
 
 def auto_detect_confluence(ny_trade_direction: str, ny_ladder: list,
                            current_price: float, candles_df=None,
-                           es_offset: float = 0) -> dict:
+                           es_offset: float = 0, next_date=None) -> dict:
     """
     Automatically detect all 5 confluence factors from available data.
     
@@ -1181,31 +1181,58 @@ def auto_detect_confluence(ny_trade_direction: str, ny_ladder: list,
                 if col in df.columns:
                     df[col] = df[col] - es_offset
         
-        # Get session candles by hour (CT timezone)
-        # Asian: 5:00 PM - 2:00 AM CT (previous day 17:00 to 02:00)
-        # London: 2:00 AM - 8:30 AM CT
-        # Pre-market data: 7:30-8:00 AM, 8:00-8:30 AM candles
-        # Opening: 8:30-9:00 AM candle
+        # Get session candles by hour AND date (CT timezone)
+        # Asian session spans two dates: starts prior day 5 PM, ends next day 2 AM
+        # London: next day 2:00 AM - 8:30 AM CT
+        # Pre-market data: next day 7:30-8:30 AM
+        # Opening: next day 8:30-9:00 AM
         
-        hours = df.index.hour
-        minutes = df.index.minute
-        time_decimal = hours + minutes / 60.0
+        # Determine the overnight date for Asian session
+        from datetime import date as date_type
         
-        # Asian session: 17:00 - 02:00 CT
-        asian_mask = (time_decimal >= 17.0) | (time_decimal < 2.0)
-        asian_candles = df[asian_mask]
+        # If next_date not passed, derive from candle data
+        if next_date is None:
+            # Get the latest date in the data and assume that's next_date
+            all_dates = sorted(set(df.index.date))
+            next_date = all_dates[-1] if all_dates else datetime.now().date()
+        elif hasattr(next_date, 'date') and callable(next_date.date):
+            next_date = next_date.date()
         
-        # London session: 2:00 - 8:30 CT
-        london_mask = (time_decimal >= 2.0) & (time_decimal < 8.5)
-        london_candles = df[london_mask]
+        # Get dates from the candle data
+        df['_date'] = df.index.date
+        df['_hour'] = df.index.hour
+        df['_minute'] = df.index.minute
+        df['_time_dec'] = df['_hour'] + df['_minute'] / 60.0
         
-        # Data candle: 7:30-8:00 AM and 8:00-8:30 AM
-        data_mask = (time_decimal >= 7.5) & (time_decimal < 8.5)
-        data_candles = df[data_mask]
+        # next_date is the trading day we're projecting into
+        # Asian session: prior_date 5 PM CT through next_date 2 AM CT
+        # But if Friday, Asian is Sunday 5 PM through Monday 2 AM
         
-        # Opening drive: 8:30-9:00 AM candle
-        open_mask = (time_decimal >= 8.5) & (time_decimal < 9.0)
-        open_candles = df[open_mask]
+        # Prior evening candles (5 PM to midnight on the day before next_date)
+        prior_evening_date = next_date - timedelta(days=1)
+        # Handle weekend: if next_date is Monday, prior evening is Sunday
+        if next_date.weekday() == 0:  # Monday
+            prior_evening_date = next_date - timedelta(days=1)  # Sunday
+        
+        evening_mask = (df['_date'] == prior_evening_date) & (df['_time_dec'] >= 17.0)
+        early_morning_mask = (df['_date'] == next_date) & (df['_time_dec'] < 2.0)
+        asian_mask = evening_mask | early_morning_mask
+        asian_candles = df[asian_mask].sort_index()
+        
+        # London session: next_date 2:00 - 8:30 AM CT
+        london_mask = (df['_date'] == next_date) & (df['_time_dec'] >= 2.0) & (df['_time_dec'] < 8.5)
+        london_candles = df[london_mask].sort_index()
+        
+        # Data candle: next_date 7:30-8:30 AM
+        data_mask = (df['_date'] == next_date) & (df['_time_dec'] >= 7.5) & (df['_time_dec'] < 8.5)
+        data_candles = df[data_mask].sort_index()
+        
+        # Opening drive: next_date 8:30-9:00 AM candle
+        open_mask = (df['_date'] == next_date) & (df['_time_dec'] >= 8.5) & (df['_time_dec'] < 9.0)
+        open_candles = df[open_mask].sort_index()
+        
+        # Clean up temp columns
+        df = df.drop(columns=['_date', '_hour', '_minute', '_time_dec'])
         
         # ── Factor 1: Asian Session Aligned ──
         if len(asian_candles) >= 2:
@@ -2607,7 +2634,8 @@ def main():
                 ny_ladder=ny_ladder,
                 current_price=current_price,
                 candles_df=candles_for_detection,
-                es_offset=es_offset_val
+                es_offset=es_offset_val,
+                next_date=next_date
             )
             
             has_candle_data = candles_for_detection is not None and len(candles_for_detection) > 0
