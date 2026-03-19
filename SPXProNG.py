@@ -2182,6 +2182,9 @@ def main():
     next_day_dt = datetime.combine(next_date, time(9, 0))
     levels = calculate_nine_am_levels(bounces, rejections, highest_wick, lowest_wick, next_day_dt)
     
+    # ES-SPX offset (needed for channel calculation and live price)
+    es_offset_val = st.session_state.get('_es_offset', 0.0)
+    
     # Calculate the 6-line channel structure
     channels = calculate_channel_structure(
         bounces, rejections, highest_wick, lowest_wick, next_day_dt,
@@ -2194,7 +2197,6 @@ def main():
     # LIVE PRICE TRACKING
     # ============================================================
     live_price_data = None
-    es_offset_val = st.session_state.get('_es_offset', 0.0)
     
     if live_mode:
         # Auto-refresh every 30 seconds
