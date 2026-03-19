@@ -634,18 +634,22 @@ def calculate_channel_structure(bounces: list, rejections: list,
     if abs(high_price - low_price) < 0.5:
         high_price = low_price + 5  # minimum 5pt channel
     
-    # ── ASCENDING CHANNEL ──
-    # Both lines rise at +0.52/candle from the two afternoon anchor prices
-    asc_from_low = calculate_line_value(low_price, low_time, nine_am, 'ascending')
-    asc_from_high = calculate_line_value(high_price, high_time, nine_am, 'ascending')
+    # ── FROM HIGHEST CLOSE: one ascending + one descending (V shape) ──
+    high_asc_val = calculate_line_value(high_price, high_time, nine_am, 'ascending')
+    high_desc_val = calculate_line_value(high_price, high_time, nine_am, 'descending')
     
-    # Floor = whichever projected value is lower at 9 AM, Ceiling = whichever is higher
-    if asc_from_low <= asc_from_high:
-        asc_floor_val, asc_floor_anchor, asc_floor_time = asc_from_low, low_price, low_time
-        asc_ceil_val, asc_ceil_anchor, asc_ceil_time = asc_from_high, high_price, high_time
+    # ── FROM LOWEST CLOSE: one ascending + one descending (V shape) ──
+    low_asc_val = calculate_line_value(low_price, low_time, nine_am, 'ascending')
+    low_desc_val = calculate_line_value(low_price, low_time, nine_am, 'descending')
+    
+    # ASCENDING CHANNEL = the two ascending lines (one from each anchor)
+    # Floor = lower of the two, Ceiling = higher of the two
+    if low_asc_val <= high_asc_val:
+        asc_floor_val, asc_floor_anchor, asc_floor_time = low_asc_val, low_price, low_time
+        asc_ceil_val, asc_ceil_anchor, asc_ceil_time = high_asc_val, high_price, high_time
     else:
-        asc_floor_val, asc_floor_anchor, asc_floor_time = asc_from_high, high_price, high_time
-        asc_ceil_val, asc_ceil_anchor, asc_ceil_time = asc_from_low, low_price, low_time
+        asc_floor_val, asc_floor_anchor, asc_floor_time = high_asc_val, high_price, high_time
+        asc_ceil_val, asc_ceil_anchor, asc_ceil_time = low_asc_val, low_price, low_time
     
     asc_floor = {
         'label': 'ASC Floor', 'value': asc_floor_val, 'direction': 'ascending',
@@ -660,18 +664,14 @@ def calculate_channel_structure(bounces: list, rejections: list,
         'full_name': f"Asc Ceiling ({asc_ceil_anchor:.0f})"
     }
     
-    # ── DESCENDING CHANNEL ──
-    # Both lines fall at -0.52/candle from the two afternoon anchor prices
-    desc_from_high = calculate_line_value(high_price, high_time, nine_am, 'descending')
-    desc_from_low = calculate_line_value(low_price, low_time, nine_am, 'descending')
-    
-    # Floor = whichever projected value is lower at 9 AM, Ceiling = whichever is higher
-    if desc_from_low <= desc_from_high:
-        desc_floor_val, desc_floor_anchor, desc_floor_time = desc_from_low, low_price, low_time
-        desc_ceil_val, desc_ceil_anchor, desc_ceil_time = desc_from_high, high_price, high_time
+    # DESCENDING CHANNEL = the two descending lines (one from each anchor)
+    # Floor = lower of the two, Ceiling = higher of the two
+    if low_desc_val <= high_desc_val:
+        desc_floor_val, desc_floor_anchor, desc_floor_time = low_desc_val, low_price, low_time
+        desc_ceil_val, desc_ceil_anchor, desc_ceil_time = high_desc_val, high_price, high_time
     else:
-        desc_floor_val, desc_floor_anchor, desc_floor_time = desc_from_high, high_price, high_time
-        desc_ceil_val, desc_ceil_anchor, desc_ceil_time = desc_from_low, low_price, low_time
+        desc_floor_val, desc_floor_anchor, desc_floor_time = high_desc_val, high_price, high_time
+        desc_ceil_val, desc_ceil_anchor, desc_ceil_time = low_desc_val, low_price, low_time
     
     desc_ceil = {
         'label': 'DESC Ceil', 'value': desc_ceil_val, 'direction': 'descending',
