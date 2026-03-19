@@ -556,78 +556,110 @@ def calculate_nine_am_levels(bounces: list, rejections: list,
 
 def calculate_channel_structure(bounces: list, rejections: list,
                                 highest_wick: dict, lowest_wick: dict,
-                                next_day_date: datetime) -> dict:
+                                next_day_date: datetime,
+                                candles: pd.DataFrame = None,
+                                prior_date=None, es_offset: float = 0.0) -> dict:
     """
-    Build the 6-line channel structure from afternoon (12PM ET) inflections.
+    Build the 6-line channel structure.
     
-    Ascending channel: floor = ascending line from lowest bounce, ceiling = ascending line from highest rejection
-    Descending channel: ceiling = descending line from highest rejection, floor = descending line from lowest bounce
-    Highest wick line: ascending line from highest bearish wick (above ascending channel)
-    Lowest wick line: descending line from lowest bullish wick (below descending channel)
+    Channel anchors = lowest close and highest close from 12-3 PM CT.
+    
+    From those two prices:
+    - Ascending line from lowest close = ascending channel floor
+    - Ascending line from highest close = ascending channel ceiling
+    - Descending line from highest close = descending channel ceiling
+    - Descending line from lowest close = descending channel floor
+    
+    Plus HW ascending and LW descending for extreme scenarios.
     """
     nine_am = datetime.combine(next_day_date.date(), NY_DECISION_CT)
     
-    # Find the afternoon channel anchors
-    # Lowest bounce price = channel low anchor
-    # Highest rejection price = channel high anchor
-    if not bounces and not rejections:
-        return None
+    # ── Find lowest/highest CLOSE from 12-3 PM CT ──
+    afternoon_low_close = None
+    afternoon_high_close = None
     
-    # Get lowest bounce and highest rejection from afternoon data
-    if bounces:
-        lowest_bounce = min(bounces, key=lambda x: x['price'])
-    else:
-        lowest_bounce = lowest_wick  # fallback
+    if candles is not None and len(candles) > 0 and prior_date is not None:
+        # Filter to afternoon session: 12:00 PM CT to 3:00 PM CT
+        afternoon_candles = []
+        for _, row in candles.iterrows():
+            ct = row['datetime']
+            if ct.date() == prior_date and ct.hour >= 12 and ct.hour < 15:
+                # Apply ES-SPX offset to get SPX prices
+                close_spx = row['close'] - es_offset
+                afternoon_candles.append({
+                    'price': close_spx,
+                    'time': ct,
+                    'raw_close': row['close'],
+                })
+        
+        if afternoon_candles:
+            lowest = min(afternoon_candles, key=lambda x: x['price'])
+            highest = max(afternoon_candles, key=lambda x: x['price'])
+            afternoon_low_close = {'price': lowest['price'], 'time': lowest['time']}
+            afternoon_high_close = {'price': highest['price'], 'time': highest['time']}
     
-    if rejections:
-        highest_rejection = max(rejections, key=lambda x: x['price'])
-    else:
-        highest_rejection = highest_wick  # fallback
+    # Fallback: use bounces/rejections if no candle data
+    if afternoon_low_close is None:
+        if bounces:
+            lowest_bounce = min(bounces, key=lambda x: x['price'])
+            afternoon_low_close = lowest_bounce
+        else:
+            afternoon_low_close = lowest_wick
+    
+    if afternoon_high_close is None:
+        if rejections:
+            highest_rejection = max(rejections, key=lambda x: x['price'])
+            afternoon_high_close = highest_rejection
+        else:
+            afternoon_high_close = highest_wick
+    
+    low_price = afternoon_low_close['price']
+    low_time = afternoon_low_close['time']
+    high_price = afternoon_high_close['price']
+    high_time = afternoon_high_close['time']
     
     # ── ASCENDING CHANNEL ──
-    # Floor: ascending line from lowest bounce
-    # Ceiling: ascending line from highest rejection
-    asc_floor_val = calculate_line_value(lowest_bounce['price'], lowest_bounce['time'], nine_am, 'ascending')
-    asc_ceil_val = calculate_line_value(highest_rejection['price'], highest_rejection['time'], nine_am, 'ascending')
+    # Floor: ascending line from lowest afternoon close
+    # Ceiling: ascending line from highest afternoon close
+    asc_floor_val = calculate_line_value(low_price, low_time, nine_am, 'ascending')
+    asc_ceil_val = calculate_line_value(high_price, high_time, nine_am, 'ascending')
     
-    # Ensure floor < ceiling (swap if needed due to time differences)
     if asc_floor_val > asc_ceil_val:
         asc_floor_val, asc_ceil_val = asc_ceil_val, asc_floor_val
     
     asc_floor = {
         'label': 'ASC Floor', 'value': asc_floor_val, 'direction': 'ascending',
         'color': '#ff5252', 'is_key': True, 'channel': 'ascending',
-        'anchor': lowest_bounce['price'], 'anchor_time': lowest_bounce['time'],
-        'full_name': f"Asc Floor ({lowest_bounce['price']:.0f})"
+        'anchor': low_price, 'anchor_time': low_time,
+        'full_name': f"Asc Floor ({low_price:.0f})"
     }
     asc_ceil = {
         'label': 'ASC Ceil', 'value': asc_ceil_val, 'direction': 'ascending',
         'color': '#ff1744', 'is_key': True, 'channel': 'ascending',
-        'anchor': highest_rejection['price'], 'anchor_time': highest_rejection['time'],
-        'full_name': f"Asc Ceiling ({highest_rejection['price']:.0f})"
+        'anchor': high_price, 'anchor_time': high_time,
+        'full_name': f"Asc Ceiling ({high_price:.0f})"
     }
     
     # ── DESCENDING CHANNEL ──
-    # Ceiling: descending line from highest rejection
-    # Floor: descending line from lowest bounce
-    desc_ceil_val = calculate_line_value(highest_rejection['price'], highest_rejection['time'], nine_am, 'descending')
-    desc_floor_val = calculate_line_value(lowest_bounce['price'], lowest_bounce['time'], nine_am, 'descending')
+    # Ceiling: descending line from highest afternoon close
+    # Floor: descending line from lowest afternoon close
+    desc_ceil_val = calculate_line_value(high_price, high_time, nine_am, 'descending')
+    desc_floor_val = calculate_line_value(low_price, low_time, nine_am, 'descending')
     
-    # Ensure floor < ceiling
     if desc_floor_val > desc_ceil_val:
         desc_floor_val, desc_ceil_val = desc_ceil_val, desc_floor_val
     
     desc_ceil = {
         'label': 'DESC Ceil', 'value': desc_ceil_val, 'direction': 'descending',
         'color': '#69f0ae', 'is_key': True, 'channel': 'descending',
-        'anchor': highest_rejection['price'], 'anchor_time': highest_rejection['time'],
-        'full_name': f"Desc Ceiling ({highest_rejection['price']:.0f})"
+        'anchor': high_price, 'anchor_time': high_time,
+        'full_name': f"Desc Ceiling ({high_price:.0f})"
     }
     desc_floor = {
         'label': 'DESC Floor', 'value': desc_floor_val, 'direction': 'descending',
         'color': '#00e676', 'is_key': True, 'channel': 'descending',
-        'anchor': lowest_bounce['price'], 'anchor_time': lowest_bounce['time'],
-        'full_name': f"Desc Floor ({lowest_bounce['price']:.0f})"
+        'anchor': low_price, 'anchor_time': low_time,
+        'full_name': f"Desc Floor ({low_price:.0f})"
     }
     
     # ── WICK LINES (extreme outliers) ──
@@ -661,6 +693,8 @@ def calculate_channel_structure(bounces: list, rejections: list,
         'all_lines': [hw_line, asc_ceil, asc_floor, desc_ceil, desc_floor, lw_line],
         'asc_width': asc_width,
         'desc_width': desc_width,
+        'afternoon_low': afternoon_low_close,
+        'afternoon_high': afternoon_high_close,
     }
 
 
@@ -1715,7 +1749,7 @@ def detect_inflections(ny_candles: pd.DataFrame) -> dict:
     # ============================================================
     # AFTERNOON CHANNEL PRIORITIZATION
     # ============================================================
-    # The 12:00 PM ET (11:00 AM CT) to 3:00 PM channel is where institutional positioning settles
+    # The 12:00 PM CT to 3:00 PM CT channel is where institutional positioning settles
     # after morning noise and stop hunts clear out. These are the lines that 
     # produce real reactions the next day.
     #
@@ -1723,7 +1757,7 @@ def detect_inflections(ny_candles: pd.DataFrame) -> dict:
     # - Afternoon bounces/rejections define the dominant channel
     # - Morning inflections are kept as secondary context
     
-    noon_hour = 11  # 12:00 PM ET = 11:00 AM CT (candle data is in CT)
+    noon_hour = 12  # 12:00 PM CT (candle data is in CT)
     
     afternoon_bounces = [b for b in bounces if b['time'].hour >= noon_hour]
     morning_bounces = [b for b in bounces if b['time'].hour < noon_hour]
@@ -1950,7 +1984,7 @@ def main():
                             st.caption(f"✅ Offset of {es_offset:+.2f} applied to all levels")
                         
                         st.markdown("---")
-                        st.markdown("### 🎯 Afternoon Channel (12PM–3PM ET)" if es_offset == 0 else "### 🎯 Afternoon Channel (SPX-adjusted)")
+                        st.markdown("### 🎯 Afternoon Channel (12–3 PM CT)" if es_offset == 0 else "### 🎯 Afternoon Channel (SPX-adjusted)")
                         st.caption("Primary lines — where price settled after morning noise")
                         
                         # Primary bounces (afternoon)
@@ -2149,7 +2183,12 @@ def main():
     levels = calculate_nine_am_levels(bounces, rejections, highest_wick, lowest_wick, next_day_dt)
     
     # Calculate the 6-line channel structure
-    channels = calculate_channel_structure(bounces, rejections, highest_wick, lowest_wick, next_day_dt)
+    channels = calculate_channel_structure(
+        bounces, rejections, highest_wick, lowest_wick, next_day_dt,
+        candles=st.session_state.get('last_fetch_candles', None),
+        prior_date=prior_date,
+        es_offset=es_offset_val
+    )
     
     # ============================================================
     # LIVE PRICE TRACKING
