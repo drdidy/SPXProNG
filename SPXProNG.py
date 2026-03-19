@@ -1816,7 +1816,7 @@ def detect_inflections(ny_candles: pd.DataFrame) -> dict:
             r['priority'] = 'primary'
     
     # Highest wick: highest HIGH of a BEARISH candle (close < open)
-    # Only consider candles from 9:00 AM to 2:30 PM CT (exclude open/close noise)
+    # Full NY session: 8:30 AM to before 4:00 PM CT
     bearish_mask = closes < opens
     highest_wick = None
     if bearish_mask.any():
@@ -1826,11 +1826,10 @@ def detect_inflections(ny_candles: pd.DataFrame) -> dict:
             if not bearish_mask[idx]:
                 continue
             t = pd.Timestamp(times[idx]).to_pydatetime()
-            # Skip opening noise (before 9:00 AM)
-            if t.hour < 9:
+            # Full NY session: 8:30 AM CT to before 4:00 PM CT
+            if t.hour < 8 or (t.hour == 8 and t.minute < 30):
                 continue
-            # Skip closing noise (2:30 PM and later)
-            if t.hour >= 15 or (t.hour == 14 and t.minute >= 30):
+            if t.hour >= 16:
                 continue
             if highs[idx] > best_high:
                 best_high = highs[idx]
@@ -1843,7 +1842,7 @@ def detect_inflections(ny_candles: pd.DataFrame) -> dict:
             }
     
     # Lowest wick: lowest LOW of a BULLISH candle (close > open)
-    # Only consider candles from 9:00 AM to 2:30 PM CT (exclude open/close noise)
+    # Full NY session: 8:30 AM to before 4:00 PM CT
     bullish_mask = closes > opens
     lowest_wick = None
     if bullish_mask.any():
@@ -1853,11 +1852,10 @@ def detect_inflections(ny_candles: pd.DataFrame) -> dict:
             if not bullish_mask[idx]:
                 continue
             t = pd.Timestamp(times[idx]).to_pydatetime()
-            # Skip opening noise (before 9:00 AM)
-            if t.hour < 9:
+            # Full NY session: 8:30 AM CT to before 4:00 PM CT
+            if t.hour < 8 or (t.hour == 8 and t.minute < 30):
                 continue
-            # Skip closing noise (2:30 PM and later)
-            if t.hour >= 15 or (t.hour == 14 and t.minute >= 30):
+            if t.hour >= 16:
                 continue
             if lows[idx] < best_low:
                 best_low = lows[idx]
