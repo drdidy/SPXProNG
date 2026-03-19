@@ -635,47 +635,55 @@ def calculate_channel_structure(bounces: list, rejections: list,
         high_price = low_price + 5  # minimum 5pt channel
     
     # ── ASCENDING CHANNEL ──
-    # Floor: ascending line from lowest afternoon close
-    # Ceiling: ascending line from highest afternoon close
-    asc_floor_val = calculate_line_value(low_price, low_time, nine_am, 'ascending')
-    asc_ceil_val = calculate_line_value(high_price, high_time, nine_am, 'ascending')
+    # Both lines rise at +0.52/candle from the two afternoon anchor prices
+    asc_from_low = calculate_line_value(low_price, low_time, nine_am, 'ascending')
+    asc_from_high = calculate_line_value(high_price, high_time, nine_am, 'ascending')
     
-    if asc_floor_val > asc_ceil_val:
-        asc_floor_val, asc_ceil_val = asc_ceil_val, asc_floor_val
+    # Floor = whichever projected value is lower at 9 AM, Ceiling = whichever is higher
+    if asc_from_low <= asc_from_high:
+        asc_floor_val, asc_floor_anchor, asc_floor_time = asc_from_low, low_price, low_time
+        asc_ceil_val, asc_ceil_anchor, asc_ceil_time = asc_from_high, high_price, high_time
+    else:
+        asc_floor_val, asc_floor_anchor, asc_floor_time = asc_from_high, high_price, high_time
+        asc_ceil_val, asc_ceil_anchor, asc_ceil_time = asc_from_low, low_price, low_time
     
     asc_floor = {
         'label': 'ASC Floor', 'value': asc_floor_val, 'direction': 'ascending',
         'color': '#ff5252', 'is_key': True, 'channel': 'ascending',
-        'anchor': low_price, 'anchor_time': low_time,
-        'full_name': f"Asc Floor ({low_price:.0f})"
+        'anchor': asc_floor_anchor, 'anchor_time': asc_floor_time,
+        'full_name': f"Asc Floor ({asc_floor_anchor:.0f})"
     }
     asc_ceil = {
         'label': 'ASC Ceil', 'value': asc_ceil_val, 'direction': 'ascending',
         'color': '#ff1744', 'is_key': True, 'channel': 'ascending',
-        'anchor': high_price, 'anchor_time': high_time,
-        'full_name': f"Asc Ceiling ({high_price:.0f})"
+        'anchor': asc_ceil_anchor, 'anchor_time': asc_ceil_time,
+        'full_name': f"Asc Ceiling ({asc_ceil_anchor:.0f})"
     }
     
     # ── DESCENDING CHANNEL ──
-    # Ceiling: descending line from highest afternoon close
-    # Floor: descending line from lowest afternoon close
-    desc_ceil_val = calculate_line_value(high_price, high_time, nine_am, 'descending')
-    desc_floor_val = calculate_line_value(low_price, low_time, nine_am, 'descending')
+    # Both lines fall at -0.52/candle from the two afternoon anchor prices
+    desc_from_high = calculate_line_value(high_price, high_time, nine_am, 'descending')
+    desc_from_low = calculate_line_value(low_price, low_time, nine_am, 'descending')
     
-    if desc_floor_val > desc_ceil_val:
-        desc_floor_val, desc_ceil_val = desc_ceil_val, desc_floor_val
+    # Floor = whichever projected value is lower at 9 AM, Ceiling = whichever is higher
+    if desc_from_low <= desc_from_high:
+        desc_floor_val, desc_floor_anchor, desc_floor_time = desc_from_low, low_price, low_time
+        desc_ceil_val, desc_ceil_anchor, desc_ceil_time = desc_from_high, high_price, high_time
+    else:
+        desc_floor_val, desc_floor_anchor, desc_floor_time = desc_from_high, high_price, high_time
+        desc_ceil_val, desc_ceil_anchor, desc_ceil_time = desc_from_low, low_price, low_time
     
     desc_ceil = {
         'label': 'DESC Ceil', 'value': desc_ceil_val, 'direction': 'descending',
         'color': '#69f0ae', 'is_key': True, 'channel': 'descending',
-        'anchor': high_price, 'anchor_time': high_time,
-        'full_name': f"Desc Ceiling ({high_price:.0f})"
+        'anchor': desc_ceil_anchor, 'anchor_time': desc_ceil_time,
+        'full_name': f"Desc Ceiling ({desc_ceil_anchor:.0f})"
     }
     desc_floor = {
         'label': 'DESC Floor', 'value': desc_floor_val, 'direction': 'descending',
         'color': '#00e676', 'is_key': True, 'channel': 'descending',
-        'anchor': low_price, 'anchor_time': low_time,
-        'full_name': f"Desc Floor ({low_price:.0f})"
+        'anchor': desc_floor_anchor, 'anchor_time': desc_floor_time,
+        'full_name': f"Desc Floor ({desc_floor_anchor:.0f})"
     }
     
     # ── WICK LINES (extreme outliers) ──
