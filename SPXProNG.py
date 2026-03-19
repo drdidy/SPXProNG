@@ -2777,16 +2777,14 @@ def main():
         </div>
         """, unsafe_allow_html=True)
         
-        # Build the full line ladder at 6 PM (in ES terms) from channel structure
+        # Build the full line ladder at 6 PM in ES terms for prop firm trading
         line_ladder_6pm = []
         
         if channels:
             for line in channels['all_lines']:
-                val_6pm = calculate_line_value(line['anchor'], line['anchor_time'], decision_time_6pm, line['direction'])
-                val_7pm = calculate_line_value(line['anchor'], line['anchor_time'], exit_time_7pm, line['direction'])
-                # Add offset back: SPX → ES
-                val_6pm += es_offset_asian
-                val_7pm += es_offset_asian
+                # Project line to 6 PM and 7 PM, then add ES offset since channels are in SPX
+                val_6pm = calculate_line_value(line['anchor'], line['anchor_time'], decision_time_6pm, line['direction']) + es_offset_asian
+                val_7pm = calculate_line_value(line['anchor'], line['anchor_time'], exit_time_7pm, line['direction']) + es_offset_asian
                 line_ladder_6pm.append({
                     'name': line['full_name'],
                     'short': line['label'],
