@@ -747,8 +747,12 @@ def determine_scenario(channels: dict, current_price: float, confirmation_830: d
     primary = None
     alternate = None
     
+    # Check if channels overlap
+    in_asc = (p >= af and p <= ac)
+    in_desc = (p >= df and p <= dc)
+    
     if p > hw:
-        # SCENARIO 6a: Above highest wick — extreme gap up, no structure above
+        # SCENARIO 6a: Above highest wick — extreme gap up
         scenario = {
             'number': 6, 'name': 'EXTREME GAP UP',
             'desc': f'Price {p:.2f} is ABOVE highest wick line ({hw:.2f}). No structural resistance above. Dangerous to trade.',
@@ -762,6 +766,104 @@ def determine_scenario(channels: dict, current_price: float, confirmation_830: d
             'tp2_line': channels['asc_floor'], 'tp2_price': af, 'tp2_desc': 'Asc Floor',
             'timing': 'If price returns to HW line and rejects',
             'confidence': 'LOW — trading against momentum in a gap',
+        }
+    
+    elif p < lw:
+        # SCENARIO 6b: Below lowest wick — extreme gap down
+        scenario = {
+            'number': 6, 'name': 'EXTREME GAP DOWN',
+            'desc': f'Price {p:.2f} is BELOW lowest wick line ({lw:.2f}). No structural support below. Dangerous to trade.',
+            'color': '#ffd740', 'class': 'neutral',
+        }
+        primary = {
+            'direction': 'CALL', 'entry_line': channels['lw_line'],
+            'entry_price': lw, 'stop_price': lw - 5,
+            'stop_desc': '5pt below LW line (no structure)',
+            'tp1_line': channels['desc_floor'], 'tp1_price': df, 'tp1_desc': 'Desc Floor',
+            'tp2_line': channels['desc_ceil'], 'tp2_price': dc, 'tp2_desc': 'Desc Ceiling',
+            'timing': 'If price returns to LW line and bounces',
+            'confidence': 'LOW — trading against momentum in a gap',
+        }
+    
+    elif in_asc and in_desc:
+        # SCENARIO 7: OVERLAP ZONE — inside BOTH channels simultaneously
+        # This is the compression zone. Both channels have claim on price.
+        # Ascending channel says resistance (PUT), descending says support (CALL).
+        # The play is to wait for price to exit one channel decisively.
+        scenario = {
+            'number': 7, 'name': 'CHANNEL OVERLAP — COMPRESSION',
+            'desc': f'Price {p:.2f} is inside BOTH ascending ({af:.2f}–{ac:.2f}) and descending ({df:.2f}–{dc:.2f}) channels. Compression zone. Wait for breakout direction.',
+            'color': '#b388ff', 'class': 'neutral',
+        }
+        primary = {
+            'direction': 'PUT', 'entry_line': channels['asc_ceil'],
+            'entry_price': ac, 'stop_price': hw,
+            'stop_desc': f'HW line at {hw:.2f}',
+            'tp1_line': channels['desc_floor'], 'tp1_price': df, 'tp1_desc': 'Desc Floor',
+            'tp2_line': channels['lw_line'], 'tp2_price': lw, 'tp2_desc': 'LW Line',
+            'timing': 'If price rises to ascending ceiling and rejects',
+            'confidence': 'MEDIUM — overlap creates uncertainty, wait for clear rejection',
+        }
+        alternate = {
+            'direction': 'CALL', 'entry_line': channels['desc_floor'],
+            'entry_price': df, 'stop_price': lw,
+            'stop_desc': f'LW line at {lw:.2f}',
+            'tp1_price': ac, 'tp1_desc': 'Asc Ceiling',
+            'tp2_price': hw, 'tp2_desc': 'HW Line',
+            'timing': 'If price drops to descending floor and bounces',
+            'confidence': 'MEDIUM — overlap creates uncertainty, wait for clear bounce',
+        }
+    
+    elif in_asc:
+        # SCENARIO 2: Inside ascending channel only
+        scenario = {
+            'number': 2, 'name': 'INSIDE ASCENDING CHANNEL',
+            'desc': f'Price {p:.2f} is INSIDE the ascending channel ({af:.2f} floor — {ac:.2f} ceiling). In the resistance zone. Watch for rejection.',
+            'color': '#ff5252', 'class': 'bear',
+        }
+        primary = {
+            'direction': 'PUT', 'entry_line': channels['asc_ceil'],
+            'entry_price': ac, 'stop_price': hw,
+            'stop_desc': f'HW line at {hw:.2f}',
+            'tp1_line': channels['desc_ceil'], 'tp1_price': dc, 'tp1_desc': 'Desc Ceiling',
+            'tp2_line': channels['desc_floor'], 'tp2_price': df, 'tp2_desc': 'Desc Floor',
+            'timing': 'Enter on rejection from ceiling, or if 8:30 already confirmed',
+            'confidence': 'HIGH — already inside resistance zone',
+        }
+        alternate = {
+            'direction': 'CALL', 'entry_line': channels['asc_ceil'],
+            'entry_price': ac, 'stop_price': ac,
+            'stop_desc': 'Re-enter channel from above',
+            'tp1_price': hw, 'tp1_desc': 'HW Line',
+            'tp2_price': hw + 5, 'tp2_desc': 'Beyond HW',
+            'timing': 'ONLY if price breaks and CLOSES above ceiling',
+            'confidence': 'LOW — counter to primary, only on breakout close',
+        }
+    
+    elif in_desc:
+        # SCENARIO 3: Inside descending channel only
+        scenario = {
+            'number': 3, 'name': 'INSIDE DESCENDING CHANNEL',
+            'desc': f'Price {p:.2f} is INSIDE the descending channel ({df:.2f} floor — {dc:.2f} ceiling). In the support zone. Watch for bounce.',
+            'color': '#00e676', 'class': 'bull',
+        }
+        primary = {
+            'direction': 'CALL', 'entry_line': channels['desc_floor'],
+            'entry_price': df, 'stop_price': lw,
+            'stop_desc': f'LW line at {lw:.2f}',
+            'tp1_line': channels['asc_floor'], 'tp1_price': af, 'tp1_desc': 'Asc Floor',
+            'tp2_line': channels['asc_ceil'], 'tp2_price': ac, 'tp2_desc': 'Asc Ceiling',
+            'timing': 'Enter on bounce from floor, or if 8:30 already confirmed',
+            'confidence': 'HIGH — already inside support zone',
+        }
+        alternate = {
+            'direction': 'PUT', 'entry_line': channels['desc_floor'],
+            'entry_price': df, 'stop_price': df,
+            'stop_desc': 'Re-enter channel from below',
+            'tp1_price': lw, 'tp1_desc': 'LW Line',
+            'tp2_price': lw - 5, 'tp2_desc': 'Beyond LW',
+            'timing': 'ONLY if price breaks and CLOSES below floor',
+            'confidence': 'LOW — counter to primary, only on breakdown close',
         }
     
     elif p > ac:
@@ -790,85 +892,7 @@ def determine_scenario(channels: dict, current_price: float, confirmation_830: d
             'confidence': 'MEDIUM — channel becomes support',
         }
     
-    elif p >= af and p <= ac:
-        # SCENARIO 2: Inside ascending channel
-        scenario = {
-            'number': 2, 'name': 'INSIDE ASCENDING CHANNEL',
-            'desc': f'Price {p:.2f} is INSIDE the ascending channel ({af:.2f} floor — {ac:.2f} ceiling). In the resistance zone. Watch for rejection.',
-            'color': '#ff5252', 'class': 'bear',
-        }
-        primary = {
-            'direction': 'PUT', 'entry_line': channels['asc_ceil'],
-            'entry_price': ac, 'stop_price': hw,
-            'stop_desc': f'HW line at {hw:.2f}',
-            'tp1_line': channels['desc_ceil'], 'tp1_price': dc, 'tp1_desc': 'Desc Ceiling',
-            'tp2_line': channels['desc_floor'], 'tp2_price': df, 'tp2_desc': 'Desc Floor',
-            'timing': 'Enter on rejection from ceiling, or if 8:30 already confirmed',
-            'confidence': 'HIGH — already inside resistance zone',
-        }
-        alternate = {
-            'direction': 'CALL', 'entry_line': channels['asc_ceil'],
-            'entry_price': ac, 'stop_price': ac,
-            'stop_desc': 'Re-enter channel from above',
-            'tp1_price': hw, 'tp1_desc': 'HW Line',
-            'tp2_price': hw + 5, 'tp2_desc': 'Beyond HW',
-            'timing': 'ONLY if price breaks and CLOSES above ceiling',
-            'confidence': 'LOW — counter to primary, only on breakout close',
-        }
-    
-    elif p > dc and p < af:
-        # SCENARIO 1: Between channels (most common)
-        scenario = {
-            'number': 1, 'name': 'BETWEEN CHANNELS',
-            'desc': f'Price {p:.2f} between ascending floor ({af:.2f}) and descending ceiling ({dc:.2f}). Wait for price to reach a channel.',
-            'color': '#00d4ff', 'class': 'neutral',
-        }
-        primary = {
-            'direction': 'PUT', 'entry_line': channels['asc_floor'],
-            'entry_price': af, 'stop_price': ac,
-            'stop_desc': f'Asc Ceiling at {ac:.2f}',
-            'tp1_line': channels['desc_ceil'], 'tp1_price': dc, 'tp1_desc': 'Desc Ceiling',
-            'tp2_line': channels['desc_floor'], 'tp2_price': df, 'tp2_desc': 'Desc Floor',
-            'timing': 'When price rises to ascending channel floor',
-            'confidence': 'HIGH — clean rejection setup',
-        }
-        alternate = {
-            'direction': 'CALL', 'entry_line': channels['desc_ceil'],
-            'entry_price': dc, 'stop_price': df,
-            'stop_desc': f'Desc Floor at {df:.2f}',
-            'tp1_price': af, 'tp1_desc': 'Asc Floor',
-            'tp2_price': ac, 'tp2_desc': 'Asc Ceiling',
-            'timing': 'When price drops to descending channel ceiling',
-            'confidence': 'HIGH — clean bounce setup',
-        }
-    
-    elif p >= df and p <= dc:
-        # SCENARIO 3: Inside descending channel
-        scenario = {
-            'number': 3, 'name': 'INSIDE DESCENDING CHANNEL',
-            'desc': f'Price {p:.2f} is INSIDE the descending channel ({df:.2f} floor — {dc:.2f} ceiling). In the support zone. Watch for bounce.',
-            'color': '#00e676', 'class': 'bull',
-        }
-        primary = {
-            'direction': 'CALL', 'entry_line': channels['desc_floor'],
-            'entry_price': df, 'stop_price': lw,
-            'stop_desc': f'LW line at {lw:.2f}',
-            'tp1_line': channels['asc_floor'], 'tp1_price': af, 'tp1_desc': 'Asc Floor',
-            'tp2_line': channels['asc_ceil'], 'tp2_price': ac, 'tp2_desc': 'Asc Ceiling',
-            'timing': 'Enter on bounce from floor, or if 8:30 already confirmed',
-            'confidence': 'HIGH — already inside support zone',
-        }
-        alternate = {
-            'direction': 'PUT', 'entry_line': channels['desc_floor'],
-            'entry_price': df, 'stop_price': df,
-            'stop_desc': 'Re-enter channel from below',
-            'tp1_price': lw, 'tp1_desc': 'LW Line',
-            'tp2_price': lw - 5, 'tp2_desc': 'Beyond LW',
-            'timing': 'ONLY if price breaks and CLOSES below floor',
-            'confidence': 'LOW — counter to primary, only on breakdown close',
-        }
-    
-    elif p < df and p > lw:
+    elif p < df:
         # SCENARIO 5: Below descending channel, above LW
         scenario = {
             'number': 5, 'name': 'BELOW DESCENDING CHANNEL',
@@ -895,20 +919,29 @@ def determine_scenario(channels: dict, current_price: float, confirmation_830: d
         }
     
     else:
-        # SCENARIO 6b: Below lowest wick — extreme gap down
+        # SCENARIO 1: Between channels (neither inside ascending nor descending)
         scenario = {
-            'number': 6, 'name': 'EXTREME GAP DOWN',
-            'desc': f'Price {p:.2f} is BELOW lowest wick line ({lw:.2f}). No structural support below. Dangerous to trade.',
-            'color': '#ffd740', 'class': 'neutral',
+            'number': 1, 'name': 'BETWEEN CHANNELS',
+            'desc': f'Price {p:.2f} between ascending floor ({af:.2f}) and descending ceiling ({dc:.2f}). Wait for price to reach a channel.',
+            'color': '#00d4ff', 'class': 'neutral',
         }
         primary = {
-            'direction': 'CALL', 'entry_line': channels['lw_line'],
-            'entry_price': lw, 'stop_price': lw - 5,
-            'stop_desc': '5pt below LW line (no structure)',
-            'tp1_line': channels['desc_floor'], 'tp1_price': df, 'tp1_desc': 'Desc Floor',
-            'tp2_line': channels['desc_ceil'], 'tp2_price': dc, 'tp2_desc': 'Desc Ceiling',
-            'timing': 'If price returns to LW line and bounces',
-            'confidence': 'LOW — trading against momentum in a gap',
+            'direction': 'PUT', 'entry_line': channels['asc_floor'],
+            'entry_price': af, 'stop_price': ac,
+            'stop_desc': f'Asc Ceiling at {ac:.2f}',
+            'tp1_line': channels['desc_ceil'], 'tp1_price': dc, 'tp1_desc': 'Desc Ceiling',
+            'tp2_line': channels['desc_floor'], 'tp2_price': df, 'tp2_desc': 'Desc Floor',
+            'timing': 'When price rises to ascending channel floor',
+            'confidence': 'HIGH — clean rejection setup',
+        }
+        alternate = {
+            'direction': 'CALL', 'entry_line': channels['desc_ceil'],
+            'entry_price': dc, 'stop_price': df,
+            'stop_desc': f'Desc Floor at {df:.2f}',
+            'tp1_price': af, 'tp1_desc': 'Asc Floor',
+            'tp2_price': ac, 'tp2_desc': 'Asc Ceiling',
+            'timing': 'When price drops to descending channel ceiling',
+            'confidence': 'HIGH — clean bounce setup',
         }
     
     # Calculate strikes (20pt OTM from entry line)
