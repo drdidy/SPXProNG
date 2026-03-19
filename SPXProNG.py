@@ -818,10 +818,15 @@ def determine_scenario(channels: dict, current_price: float, confirmation_830: d
     elif in_asc:
         # SCENARIO 2: Inside ascending channel only
         # Primary: PUT at ascending ceiling (rejection from resistance)
-        # Alternate: CALL at descending floor (the other channel is nearby below)
+        # Alternate: CALL at descending ceiling if it's nearby (nearest support below)
+        # If descending ceiling is inside the ascending channel, it's the closest bounce level
+        call_entry = dc if dc >= af else df  # Use desc ceiling if it's within reach, otherwise desc floor
+        call_entry_line = channels['desc_ceil'] if dc >= af else channels['desc_floor']
+        call_entry_desc = 'Desc Ceiling' if dc >= af else 'Desc Floor'
+        
         scenario = {
             'number': 2, 'name': 'INSIDE ASCENDING CHANNEL',
-            'desc': f'Price {p:.2f} is INSIDE the ascending channel ({af:.2f} floor — {ac:.2f} ceiling). Resistance zone. Descending floor at {df:.2f} is CALL entry below.',
+            'desc': f'Price {p:.2f} is INSIDE the ascending channel ({af:.2f}–{ac:.2f}). Resistance zone. {call_entry_desc} at {call_entry:.2f} is CALL entry below.',
             'color': '#ff5252', 'class': 'bear',
         }
         primary = {
@@ -834,22 +839,27 @@ def determine_scenario(channels: dict, current_price: float, confirmation_830: d
             'confidence': 'HIGH — already inside resistance zone',
         }
         alternate = {
-            'direction': 'CALL', 'entry_line': channels['desc_floor'],
-            'entry_price': df, 'stop_price': lw,
+            'direction': 'CALL', 'entry_line': call_entry_line,
+            'entry_price': call_entry, 'stop_price': lw,
             'stop_desc': f'LW line at {lw:.2f}',
             'tp1_price': af, 'tp1_desc': 'Asc Floor',
             'tp2_price': ac, 'tp2_desc': 'Asc Ceiling',
-            'timing': 'If price drops to descending floor and bounces',
-            'confidence': 'MEDIUM — descending channel support below',
+            'timing': f'If price drops to {call_entry_desc} at {call_entry:.2f} and bounces',
+            'confidence': 'MEDIUM — nearest descending support below',
         }
     
     elif in_desc:
         # SCENARIO 3: Inside descending channel only
         # Primary: CALL at descending floor (bounce from support)
-        # Alternate: PUT at ascending floor (the other channel is nearby above)
+        # Alternate: PUT at ascending floor if it's nearby (nearest resistance above)
+        # If ascending floor is inside the descending channel, it's the closest rejection level
+        put_entry = af if af <= dc else ac  # Use asc floor if it's within reach, otherwise asc ceiling
+        put_entry_line = channels['asc_floor'] if af <= dc else channels['asc_ceil']
+        put_entry_desc = 'Asc Floor' if af <= dc else 'Asc Ceiling'
+        
         scenario = {
             'number': 3, 'name': 'INSIDE DESCENDING CHANNEL',
-            'desc': f'Price {p:.2f} is INSIDE the descending channel ({df:.2f} floor — {dc:.2f} ceiling). Support zone. Ascending floor at {af:.2f} is PUT entry above.',
+            'desc': f'Price {p:.2f} is INSIDE the descending channel ({df:.2f}–{dc:.2f}). Support zone. {put_entry_desc} at {put_entry:.2f} is PUT entry above.',
             'color': '#00e676', 'class': 'bull',
         }
         primary = {
@@ -862,13 +872,13 @@ def determine_scenario(channels: dict, current_price: float, confirmation_830: d
             'confidence': 'HIGH — already inside support zone',
         }
         alternate = {
-            'direction': 'PUT', 'entry_line': channels['asc_floor'],
-            'entry_price': af, 'stop_price': ac,
+            'direction': 'PUT', 'entry_line': put_entry_line,
+            'entry_price': put_entry, 'stop_price': ac,
             'stop_desc': f'Asc Ceiling at {ac:.2f}',
             'tp1_price': df, 'tp1_desc': 'Desc Floor',
             'tp2_price': lw, 'tp2_desc': 'LW Line',
-            'timing': 'If price rises to ascending floor and rejects',
-            'confidence': 'MEDIUM — ascending channel resistance above',
+            'timing': f'If price rises to {put_entry_desc} at {put_entry:.2f} and rejects',
+            'confidence': 'MEDIUM — nearest ascending resistance above',
         }
     
     elif p > ac:
