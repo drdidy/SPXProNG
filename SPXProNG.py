@@ -157,7 +157,7 @@ MAINTENANCE_START_CT = time(16, 0)  # 4:00 PM CT
 MAINTENANCE_END_CT = time(17, 0)    # 5:00 PM CT
 NY_OPEN_CT = time(8, 30)
 NY_DECISION_CT = time(9, 0)
-NY_CLOSE_CT = time(15, 0)
+NY_CLOSE_CT = time(16, 0)
 
 
 def count_candles_between(start_dt: datetime, end_dt: datetime) -> int:
@@ -587,7 +587,7 @@ def calculate_channel_structure(bounces: list, rejections: list,
     afternoon_high_close = None
     
     if candles is not None and len(candles) > 0 and prior_date_d is not None:
-        # Filter to afternoon session: 12:00 PM CT to 3:00 PM CT
+        # Filter to afternoon session: 12:00 PM CT to 4:00 PM CT (close)
         afternoon_candles = []
         for _, row in candles.iterrows():
             ct = row['datetime']
@@ -595,7 +595,7 @@ def calculate_channel_structure(bounces: list, rejections: list,
                 ct_date = ct.date() if hasattr(ct, 'date') else pd.Timestamp(ct).date()
             except:
                 continue
-            if ct_date == prior_date_d and ct.hour >= 12 and ct.hour < 15:
+            if ct_date == prior_date_d and ct.hour >= 12 and ct.hour < 16:
                 # Apply ES-SPX offset to get SPX prices
                 close_spx = row['close'] - es_offset
                 afternoon_candles.append({
@@ -1456,7 +1456,7 @@ def fetch_es_candles(prior_date, next_date) -> DataSourceStatus:
     
     # Fallback: try Tastytrade SDK
     start_dt = datetime.combine(prior_date, time(8, 30))
-    end_dt = datetime.combine(next_date, time(15, 0))
+    end_dt = datetime.combine(next_date, time(16, 0))
     result = fetch_tastytrade_candles_via_sdk(start_dt, end_dt)
     if result['ok']:
         status.tastytrade_ok = True
@@ -1674,11 +1674,10 @@ def project_premium_at_scenarios(current_spx: float, strike: float, vix: float,
 
 def filter_ny_session(df: pd.DataFrame, session_date) -> pd.DataFrame:
     """
-    Filter candles to only the NY regular session: 8:30 AM - 3:00 PM CT.
-    Uses a flexible window to catch candles even if timestamps are slightly off.
+    Filter candles to the NY session: 8:30 AM - 4:00 PM CT.
     """
     session_start = datetime.combine(session_date, time(8, 0))   # slightly early to catch 8:30
-    session_end = datetime.combine(session_date, time(15, 30))    # slightly late to catch 3:00
+    session_end = datetime.combine(session_date, time(16, 0))     # 4:00 PM CT
     
     mask = (df['datetime'] >= session_start) & (df['datetime'] <= session_end)
     filtered = df[mask].copy().reset_index(drop=True)
