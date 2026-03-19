@@ -753,65 +753,66 @@ def determine_scenario(channels: dict, current_price: float, confirmation_830: d
     
     if p > hw:
         # SCENARIO 6a: Above highest wick — extreme gap up
+        # Price broke ALL structure. HW line is now SUPPORT. Ride the trend higher.
         scenario = {
             'number': 6, 'name': 'EXTREME GAP UP',
-            'desc': f'Price {p:.2f} is ABOVE highest wick line ({hw:.2f}). No structural resistance above. Dangerous to trade.',
-            'color': '#ffd740', 'class': 'neutral',
+            'desc': f'Price {p:.2f} is ABOVE highest wick line ({hw:.2f}). All structure broken to the upside. HW line is now support. Trend day up.',
+            'color': '#00e676', 'class': 'bull',
         }
         primary = {
-            'direction': 'PUT', 'entry_line': channels['hw_line'],
-            'entry_price': hw, 'stop_price': hw + 5,
-            'stop_desc': '5pt above HW line (no structure)',
-            'tp1_line': channels['asc_ceil'], 'tp1_price': ac, 'tp1_desc': 'Asc Ceiling',
-            'tp2_line': channels['asc_floor'], 'tp2_price': af, 'tp2_desc': 'Asc Floor',
-            'timing': 'If price returns to HW line and rejects',
-            'confidence': 'LOW — trading against momentum in a gap',
+            'direction': 'CALL', 'entry_line': channels['hw_line'],
+            'entry_price': hw, 'stop_price': ac,
+            'stop_desc': f'Asc Ceiling at {ac:.2f} (if HW fails, next support)',
+            'tp1_line': None, 'tp1_price': p + 10, 'tp1_desc': '+10pt from open',
+            'tp2_line': None, 'tp2_price': p + 20, 'tp2_desc': '+20pt from open',
+            'timing': 'If price pulls back to HW line and bounces — enter on the bounce',
+            'confidence': 'MEDIUM — trend day, ride it but manage risk',
         }
     
     elif p < lw:
         # SCENARIO 6b: Below lowest wick — extreme gap down
+        # Price broke ALL structure. LW line is now RESISTANCE. Ride the trend lower.
         scenario = {
             'number': 6, 'name': 'EXTREME GAP DOWN',
-            'desc': f'Price {p:.2f} is BELOW lowest wick line ({lw:.2f}). No structural support below. Dangerous to trade.',
-            'color': '#ffd740', 'class': 'neutral',
+            'desc': f'Price {p:.2f} is BELOW lowest wick line ({lw:.2f}). All structure broken to the downside. LW line is now resistance. Trend day down.',
+            'color': '#ff1744', 'class': 'bear',
         }
         primary = {
-            'direction': 'CALL', 'entry_line': channels['lw_line'],
-            'entry_price': lw, 'stop_price': lw - 5,
-            'stop_desc': '5pt below LW line (no structure)',
-            'tp1_line': channels['desc_floor'], 'tp1_price': df, 'tp1_desc': 'Desc Floor',
-            'tp2_line': channels['desc_ceil'], 'tp2_price': dc, 'tp2_desc': 'Desc Ceiling',
-            'timing': 'If price returns to LW line and bounces',
-            'confidence': 'LOW — trading against momentum in a gap',
+            'direction': 'PUT', 'entry_line': channels['lw_line'],
+            'entry_price': lw, 'stop_price': df,
+            'stop_desc': f'Desc Floor at {df:.2f} (if LW fails, next resistance)',
+            'tp1_line': None, 'tp1_price': p - 10, 'tp1_desc': '-10pt from open',
+            'tp2_line': None, 'tp2_price': p - 20, 'tp2_desc': '-20pt from open',
+            'timing': 'If price bounces back to LW line and rejects — enter on the rejection',
+            'confidence': 'MEDIUM — trend day, ride it but manage risk',
         }
     
     elif in_asc and in_desc:
         # SCENARIO 7: OVERLAP ZONE — inside BOTH channels simultaneously
-        # This is the compression zone. Both channels have claim on price.
-        # Ascending channel says resistance (PUT), descending says support (CALL).
-        # The play is to wait for price to exit one channel decisively.
+        # Ascending floor above = PUT entry (price rises to it, gets rejected)
+        # Descending floor below = CALL entry (price drops to it, bounces)
         scenario = {
             'number': 7, 'name': 'CHANNEL OVERLAP — COMPRESSION',
-            'desc': f'Price {p:.2f} is inside BOTH ascending ({af:.2f}–{ac:.2f}) and descending ({df:.2f}–{dc:.2f}) channels. Compression zone. Wait for breakout direction.',
+            'desc': f'Price {p:.2f} is inside BOTH ascending ({af:.2f}–{ac:.2f}) and descending ({df:.2f}–{dc:.2f}) channels. Ascending floor is PUT entry, descending floor is CALL entry.',
             'color': '#b388ff', 'class': 'neutral',
         }
         primary = {
-            'direction': 'PUT', 'entry_line': channels['asc_ceil'],
-            'entry_price': ac, 'stop_price': hw,
-            'stop_desc': f'HW line at {hw:.2f}',
+            'direction': 'PUT', 'entry_line': channels['asc_floor'],
+            'entry_price': af, 'stop_price': ac,
+            'stop_desc': f'Asc Ceiling at {ac:.2f}',
             'tp1_line': channels['desc_floor'], 'tp1_price': df, 'tp1_desc': 'Desc Floor',
             'tp2_line': channels['lw_line'], 'tp2_price': lw, 'tp2_desc': 'LW Line',
-            'timing': 'If price rises to ascending ceiling and rejects',
-            'confidence': 'MEDIUM — overlap creates uncertainty, wait for clear rejection',
+            'timing': 'When price rises to ascending floor and rejects',
+            'confidence': 'MEDIUM — overlap creates compression, watch for clean rejection',
         }
         alternate = {
             'direction': 'CALL', 'entry_line': channels['desc_floor'],
             'entry_price': df, 'stop_price': lw,
             'stop_desc': f'LW line at {lw:.2f}',
-            'tp1_price': ac, 'tp1_desc': 'Asc Ceiling',
-            'tp2_price': hw, 'tp2_desc': 'HW Line',
-            'timing': 'If price drops to descending floor and bounces',
-            'confidence': 'MEDIUM — overlap creates uncertainty, wait for clear bounce',
+            'tp1_price': af, 'tp1_desc': 'Asc Floor',
+            'tp2_price': ac, 'tp2_desc': 'Asc Ceiling',
+            'timing': 'When price drops to descending floor and bounces',
+            'confidence': 'MEDIUM — overlap creates compression, watch for clean bounce',
         }
     
     elif in_asc:
