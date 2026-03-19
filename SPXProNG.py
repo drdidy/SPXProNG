@@ -554,6 +554,370 @@ def calculate_nine_am_levels(bounces: list, rejections: list,
     }
 
 
+def calculate_channel_structure(bounces: list, rejections: list,
+                                highest_wick: dict, lowest_wick: dict,
+                                next_day_date: datetime) -> dict:
+    """
+    Build the 6-line channel structure from afternoon (12PM ET) inflections.
+    
+    Ascending channel: floor = ascending line from lowest bounce, ceiling = ascending line from highest rejection
+    Descending channel: ceiling = descending line from highest rejection, floor = descending line from lowest bounce
+    Highest wick line: ascending line from highest bearish wick (above ascending channel)
+    Lowest wick line: descending line from lowest bullish wick (below descending channel)
+    """
+    nine_am = datetime.combine(next_day_date.date(), NY_DECISION_CT)
+    
+    # Find the afternoon channel anchors
+    # Lowest bounce price = channel low anchor
+    # Highest rejection price = channel high anchor
+    if not bounces and not rejections:
+        return None
+    
+    # Get lowest bounce and highest rejection from afternoon data
+    if bounces:
+        lowest_bounce = min(bounces, key=lambda x: x['price'])
+    else:
+        lowest_bounce = lowest_wick  # fallback
+    
+    if rejections:
+        highest_rejection = max(rejections, key=lambda x: x['price'])
+    else:
+        highest_rejection = highest_wick  # fallback
+    
+    # ── ASCENDING CHANNEL ──
+    # Floor: ascending line from lowest bounce
+    # Ceiling: ascending line from highest rejection
+    asc_floor_val = calculate_line_value(lowest_bounce['price'], lowest_bounce['time'], nine_am, 'ascending')
+    asc_ceil_val = calculate_line_value(highest_rejection['price'], highest_rejection['time'], nine_am, 'ascending')
+    
+    # Ensure floor < ceiling (swap if needed due to time differences)
+    if asc_floor_val > asc_ceil_val:
+        asc_floor_val, asc_ceil_val = asc_ceil_val, asc_floor_val
+    
+    asc_floor = {
+        'label': 'ASC Floor', 'value': asc_floor_val, 'direction': 'ascending',
+        'color': '#ff5252', 'is_key': True, 'channel': 'ascending',
+        'anchor': lowest_bounce['price'], 'anchor_time': lowest_bounce['time'],
+        'full_name': f"Asc Floor ({lowest_bounce['price']:.0f})"
+    }
+    asc_ceil = {
+        'label': 'ASC Ceil', 'value': asc_ceil_val, 'direction': 'ascending',
+        'color': '#ff1744', 'is_key': True, 'channel': 'ascending',
+        'anchor': highest_rejection['price'], 'anchor_time': highest_rejection['time'],
+        'full_name': f"Asc Ceiling ({highest_rejection['price']:.0f})"
+    }
+    
+    # ── DESCENDING CHANNEL ──
+    # Ceiling: descending line from highest rejection
+    # Floor: descending line from lowest bounce
+    desc_ceil_val = calculate_line_value(highest_rejection['price'], highest_rejection['time'], nine_am, 'descending')
+    desc_floor_val = calculate_line_value(lowest_bounce['price'], lowest_bounce['time'], nine_am, 'descending')
+    
+    # Ensure floor < ceiling
+    if desc_floor_val > desc_ceil_val:
+        desc_floor_val, desc_ceil_val = desc_ceil_val, desc_floor_val
+    
+    desc_ceil = {
+        'label': 'DESC Ceil', 'value': desc_ceil_val, 'direction': 'descending',
+        'color': '#69f0ae', 'is_key': True, 'channel': 'descending',
+        'anchor': highest_rejection['price'], 'anchor_time': highest_rejection['time'],
+        'full_name': f"Desc Ceiling ({highest_rejection['price']:.0f})"
+    }
+    desc_floor = {
+        'label': 'DESC Floor', 'value': desc_floor_val, 'direction': 'descending',
+        'color': '#00e676', 'is_key': True, 'channel': 'descending',
+        'anchor': lowest_bounce['price'], 'anchor_time': lowest_bounce['time'],
+        'full_name': f"Desc Floor ({lowest_bounce['price']:.0f})"
+    }
+    
+    # ── WICK LINES (extreme outliers) ──
+    hw_val = calculate_line_value(highest_wick['price'], highest_wick['time'], nine_am, 'ascending')
+    hw_line = {
+        'label': 'HW ↗', 'value': hw_val, 'direction': 'ascending',
+        'color': '#ff1744', 'is_key': True, 'channel': 'wick',
+        'anchor': highest_wick['price'], 'anchor_time': highest_wick['time'],
+        'full_name': f"Highest Wick ({highest_wick['price']:.0f})"
+    }
+    
+    lw_val = calculate_line_value(lowest_wick['price'], lowest_wick['time'], nine_am, 'descending')
+    lw_line = {
+        'label': 'LW ↘', 'value': lw_val, 'direction': 'descending',
+        'color': '#00e676', 'is_key': True, 'channel': 'wick',
+        'anchor': lowest_wick['price'], 'anchor_time': lowest_wick['time'],
+        'full_name': f"Lowest Wick ({lowest_wick['price']:.0f})"
+    }
+    
+    # Channel width analysis
+    asc_width = asc_ceil_val - asc_floor_val
+    desc_width = desc_ceil_val - desc_floor_val
+    
+    return {
+        'asc_floor': asc_floor,
+        'asc_ceil': asc_ceil,
+        'desc_ceil': desc_ceil,
+        'desc_floor': desc_floor,
+        'hw_line': hw_line,
+        'lw_line': lw_line,
+        'all_lines': [hw_line, asc_ceil, asc_floor, desc_ceil, desc_floor, lw_line],
+        'asc_width': asc_width,
+        'desc_width': desc_width,
+    }
+
+
+def determine_scenario(channels: dict, current_price: float, confirmation_830: dict = None) -> dict:
+    """
+    Determine the trading scenario and build a complete playbook.
+    
+    6 scenarios based on where price opens relative to channels:
+    1. Between channels (most common)
+    2. Inside ascending channel
+    3. Inside descending channel
+    4. Above ascending channel (below HW line)
+    5. Below descending channel (above LW line)
+    6. Beyond wick lines (extreme gap)
+    """
+    af = channels['asc_floor']['value']
+    ac = channels['asc_ceil']['value']
+    dc = channels['desc_ceil']['value']
+    df = channels['desc_floor']['value']
+    hw = channels['hw_line']['value']
+    lw = channels['lw_line']['value']
+    
+    p = current_price
+    
+    scenario = None
+    primary = None
+    alternate = None
+    
+    if p > hw:
+        # SCENARIO 6a: Above highest wick — extreme gap up, no structure above
+        scenario = {
+            'number': 6, 'name': 'EXTREME GAP UP',
+            'desc': f'Price {p:.2f} is ABOVE highest wick line ({hw:.2f}). No structural resistance above. Dangerous to trade.',
+            'color': '#ffd740', 'class': 'neutral',
+        }
+        primary = {
+            'direction': 'PUT', 'entry_line': channels['hw_line'],
+            'entry_price': hw, 'stop_price': hw + 5,
+            'stop_desc': '5pt above HW line (no structure)',
+            'tp1_line': channels['asc_ceil'], 'tp1_price': ac, 'tp1_desc': 'Asc Ceiling',
+            'tp2_line': channels['asc_floor'], 'tp2_price': af, 'tp2_desc': 'Asc Floor',
+            'timing': 'If price returns to HW line and rejects',
+            'confidence': 'LOW — trading against momentum in a gap',
+        }
+    
+    elif p > ac:
+        # SCENARIO 4: Above ascending channel, below HW
+        scenario = {
+            'number': 4, 'name': 'ABOVE ASCENDING CHANNEL',
+            'desc': f'Price {p:.2f} above ascending ceiling ({ac:.2f}). Channel below is now support. HW line ({hw:.2f}) is resistance above.',
+            'color': '#ff9100', 'class': 'neutral',
+        }
+        primary = {
+            'direction': 'PUT', 'entry_line': channels['hw_line'],
+            'entry_price': hw, 'stop_price': hw + 3,
+            'stop_desc': '3pt above HW line',
+            'tp1_line': channels['asc_ceil'], 'tp1_price': ac, 'tp1_desc': 'Asc Ceiling',
+            'tp2_line': channels['asc_floor'], 'tp2_price': af, 'tp2_desc': 'Asc Floor',
+            'timing': 'Wait for price to reach HW line',
+            'confidence': 'MEDIUM — HW is last resistance',
+        }
+        alternate = {
+            'direction': 'CALL', 'entry_line': channels['asc_ceil'],
+            'entry_price': ac, 'stop_price': af,
+            'stop_desc': 'Below Asc Floor',
+            'tp1_price': hw, 'tp1_desc': 'HW Line',
+            'tp2_price': hw + 5, 'tp2_desc': 'Beyond HW',
+            'timing': 'If price pulls back to ascending ceiling and bounces',
+            'confidence': 'MEDIUM — channel becomes support',
+        }
+    
+    elif p >= af and p <= ac:
+        # SCENARIO 2: Inside ascending channel
+        scenario = {
+            'number': 2, 'name': 'INSIDE ASCENDING CHANNEL',
+            'desc': f'Price {p:.2f} is INSIDE the ascending channel ({af:.2f} floor — {ac:.2f} ceiling). In the resistance zone. Watch for rejection.',
+            'color': '#ff5252', 'class': 'bear',
+        }
+        primary = {
+            'direction': 'PUT', 'entry_line': channels['asc_ceil'],
+            'entry_price': ac, 'stop_price': hw,
+            'stop_desc': f'HW line at {hw:.2f}',
+            'tp1_line': channels['desc_ceil'], 'tp1_price': dc, 'tp1_desc': 'Desc Ceiling',
+            'tp2_line': channels['desc_floor'], 'tp2_price': df, 'tp2_desc': 'Desc Floor',
+            'timing': 'Enter on rejection from ceiling, or if 8:30 already confirmed',
+            'confidence': 'HIGH — already inside resistance zone',
+        }
+        alternate = {
+            'direction': 'CALL', 'entry_line': channels['asc_ceil'],
+            'entry_price': ac, 'stop_price': ac,
+            'stop_desc': 'Re-enter channel from above',
+            'tp1_price': hw, 'tp1_desc': 'HW Line',
+            'tp2_price': hw + 5, 'tp2_desc': 'Beyond HW',
+            'timing': 'ONLY if price breaks and CLOSES above ceiling',
+            'confidence': 'LOW — counter to primary, only on breakout close',
+        }
+    
+    elif p > dc and p < af:
+        # SCENARIO 1: Between channels (most common)
+        scenario = {
+            'number': 1, 'name': 'BETWEEN CHANNELS',
+            'desc': f'Price {p:.2f} between ascending floor ({af:.2f}) and descending ceiling ({dc:.2f}). Wait for price to reach a channel.',
+            'color': '#00d4ff', 'class': 'neutral',
+        }
+        primary = {
+            'direction': 'PUT', 'entry_line': channels['asc_floor'],
+            'entry_price': af, 'stop_price': ac,
+            'stop_desc': f'Asc Ceiling at {ac:.2f}',
+            'tp1_line': channels['desc_ceil'], 'tp1_price': dc, 'tp1_desc': 'Desc Ceiling',
+            'tp2_line': channels['desc_floor'], 'tp2_price': df, 'tp2_desc': 'Desc Floor',
+            'timing': 'When price rises to ascending channel floor',
+            'confidence': 'HIGH — clean rejection setup',
+        }
+        alternate = {
+            'direction': 'CALL', 'entry_line': channels['desc_ceil'],
+            'entry_price': dc, 'stop_price': df,
+            'stop_desc': f'Desc Floor at {df:.2f}',
+            'tp1_price': af, 'tp1_desc': 'Asc Floor',
+            'tp2_price': ac, 'tp2_desc': 'Asc Ceiling',
+            'timing': 'When price drops to descending channel ceiling',
+            'confidence': 'HIGH — clean bounce setup',
+        }
+    
+    elif p >= df and p <= dc:
+        # SCENARIO 3: Inside descending channel
+        scenario = {
+            'number': 3, 'name': 'INSIDE DESCENDING CHANNEL',
+            'desc': f'Price {p:.2f} is INSIDE the descending channel ({df:.2f} floor — {dc:.2f} ceiling). In the support zone. Watch for bounce.',
+            'color': '#00e676', 'class': 'bull',
+        }
+        primary = {
+            'direction': 'CALL', 'entry_line': channels['desc_floor'],
+            'entry_price': df, 'stop_price': lw,
+            'stop_desc': f'LW line at {lw:.2f}',
+            'tp1_line': channels['asc_floor'], 'tp1_price': af, 'tp1_desc': 'Asc Floor',
+            'tp2_line': channels['asc_ceil'], 'tp2_price': ac, 'tp2_desc': 'Asc Ceiling',
+            'timing': 'Enter on bounce from floor, or if 8:30 already confirmed',
+            'confidence': 'HIGH — already inside support zone',
+        }
+        alternate = {
+            'direction': 'PUT', 'entry_line': channels['desc_floor'],
+            'entry_price': df, 'stop_price': df,
+            'stop_desc': 'Re-enter channel from below',
+            'tp1_price': lw, 'tp1_desc': 'LW Line',
+            'tp2_price': lw - 5, 'tp2_desc': 'Beyond LW',
+            'timing': 'ONLY if price breaks and CLOSES below floor',
+            'confidence': 'LOW — counter to primary, only on breakdown close',
+        }
+    
+    elif p < df and p > lw:
+        # SCENARIO 5: Below descending channel, above LW
+        scenario = {
+            'number': 5, 'name': 'BELOW DESCENDING CHANNEL',
+            'desc': f'Price {p:.2f} below descending floor ({df:.2f}). Channel above is now resistance. LW line ({lw:.2f}) is support below.',
+            'color': '#ff9100', 'class': 'neutral',
+        }
+        primary = {
+            'direction': 'CALL', 'entry_line': channels['lw_line'],
+            'entry_price': lw, 'stop_price': lw - 3,
+            'stop_desc': '3pt below LW line',
+            'tp1_line': channels['desc_floor'], 'tp1_price': df, 'tp1_desc': 'Desc Floor',
+            'tp2_line': channels['desc_ceil'], 'tp2_price': dc, 'tp2_desc': 'Desc Ceiling',
+            'timing': 'Wait for price to reach LW line',
+            'confidence': 'MEDIUM — LW is last support',
+        }
+        alternate = {
+            'direction': 'PUT', 'entry_line': channels['desc_floor'],
+            'entry_price': df, 'stop_price': dc,
+            'stop_desc': 'Above Desc Ceiling',
+            'tp1_price': lw, 'tp1_desc': 'LW Line',
+            'tp2_price': lw - 5, 'tp2_desc': 'Beyond LW',
+            'timing': 'If price bounces back to descending floor and rejects',
+            'confidence': 'MEDIUM — channel becomes resistance',
+        }
+    
+    else:
+        # SCENARIO 6b: Below lowest wick — extreme gap down
+        scenario = {
+            'number': 6, 'name': 'EXTREME GAP DOWN',
+            'desc': f'Price {p:.2f} is BELOW lowest wick line ({lw:.2f}). No structural support below. Dangerous to trade.',
+            'color': '#ffd740', 'class': 'neutral',
+        }
+        primary = {
+            'direction': 'CALL', 'entry_line': channels['lw_line'],
+            'entry_price': lw, 'stop_price': lw - 5,
+            'stop_desc': '5pt below LW line (no structure)',
+            'tp1_line': channels['desc_floor'], 'tp1_price': df, 'tp1_desc': 'Desc Floor',
+            'tp2_line': channels['desc_ceil'], 'tp2_price': dc, 'tp2_desc': 'Desc Ceiling',
+            'timing': 'If price returns to LW line and bounces',
+            'confidence': 'LOW — trading against momentum in a gap',
+        }
+    
+    # Calculate strikes (20pt OTM from entry line)
+    if primary:
+        if primary['direction'] == 'PUT':
+            primary['strike'] = int((primary['entry_price'] - 20) // 5) * 5
+        else:
+            primary['strike'] = int((primary['entry_price'] + 20 + 4) // 5) * 5
+    
+    if alternate:
+        if alternate['direction'] == 'PUT':
+            alternate['strike'] = int((alternate['entry_price'] - 20) // 5) * 5
+        else:
+            alternate['strike'] = int((alternate['entry_price'] + 20 + 4) // 5) * 5
+    
+    # Apply 8:30 confirmation to timing
+    if confirmation_830 and primary:
+        if confirmation_830.get('passed') is True:
+            primary['timing'] = '9:05 AM — 8:30 confirmed rejection. Enter immediately.'
+        elif confirmation_830.get('passed') is False:
+            primary['timing'] = 'WAIT — 8:30 test failed. Wait for 9:00 or 9:30 candle to retest.'
+    
+    # ============================================================
+    # RISK FILTERS & POSITION SIZING
+    # ============================================================
+    warnings = []
+    
+    # Channel width check (sweet spot 5-12 pts)
+    asc_w = channels.get('asc_width', 0)
+    desc_w = channels.get('desc_width', 0)
+    if primary:
+        relevant_width = asc_w if primary['direction'] == 'PUT' else desc_w
+        if relevant_width < 3:
+            warnings.append(f"⚠️ Channel width only {relevant_width:.1f}pt — stop is very tight, high chop risk")
+        elif relevant_width > 15:
+            warnings.append(f"⚠️ Channel width {relevant_width:.1f}pt — very wide, slow premium move on stop")
+    
+    # Gap distance check (entry too far = theta kills you before price arrives)
+    if primary:
+        gap_to_entry = abs(current_price - primary['entry_price'])
+        if gap_to_entry > 10:
+            warnings.append(f"⚠️ Price is {gap_to_entry:.1f}pt from entry — may take too long for 0DTE")
+        elif gap_to_entry < 1:
+            warnings.append(f"✅ Price is {gap_to_entry:.1f}pt from entry — right at the level")
+    
+    # Confidence-based contract sizing
+    # HIGH = 3 contracts, MEDIUM = 2, LOW = 1
+    if primary:
+        conf = primary.get('confidence', '')
+        if 'HIGH' in conf:
+            primary['contracts'] = 3
+        elif 'MEDIUM' in conf:
+            primary['contracts'] = 2
+        else:
+            primary['contracts'] = 1
+    
+    if alternate:
+        alternate['contracts'] = 1  # alternates always 1 contract
+    
+    return {
+        'scenario': scenario,
+        'primary': primary,
+        'alternate': alternate,
+        'warnings': warnings,
+    }
+
+
 # ============================================================
 # PROP FIRM RISK CALCULATOR
 # ============================================================
@@ -1784,6 +2148,9 @@ def main():
     next_day_dt = datetime.combine(next_date, time(9, 0))
     levels = calculate_nine_am_levels(bounces, rejections, highest_wick, lowest_wick, next_day_dt)
     
+    # Calculate the 6-line channel structure
+    channels = calculate_channel_structure(bounces, rejections, highest_wick, lowest_wick, next_day_dt)
+    
     # ============================================================
     # LIVE PRICE TRACKING
     # ============================================================
@@ -1980,7 +2347,6 @@ def main():
         # ── NY SESSION — 9 AM DECISION FRAMEWORK ──
         st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
         render_section_banner("☀️", "NY Session — 0DTE Options", "9:00 AM structural signal", "#ff9100")
-        render_section_banner("🎯", "9:00 AM Decision", "Where is price in the ladder?")
         
         # Auto-fill from live price if available
         default_price = 6865.0
@@ -1991,6 +2357,163 @@ def main():
                                          value=default_price, step=0.5, format="%.2f",
                                          key="current_spx",
                                          help="Auto-filled from live ES price when LIVE MODE is on")
+        
+        # ============================================================
+        # CHANNEL PLAYBOOK — THE MISSION CARD
+        # ============================================================
+        if channels:
+            playbook = determine_scenario(channels, current_price)
+            sc = playbook['scenario']
+            pri = playbook['primary']
+            alt = playbook['alternate']
+            warnings = playbook.get('warnings', [])
+            
+            # ── Time cutoff check ──
+            time_cutoff_hit = False
+            try:
+                import pytz
+                ct_tz = pytz.timezone('America/Chicago')
+                now_ct = datetime.now(ct_tz).replace(tzinfo=None)
+                if now_ct.hour >= 10 and now_ct.date() == next_date:
+                    time_cutoff_hit = True
+                    st.markdown("""
+                    <div class="sig neutral">
+                        <div class="sig-dir" style="color:var(--gold);">⏰ TIME CUTOFF — NO NEW ENTRIES</div>
+                        <div class="sig-detail">It is past 10:00 AM CT (11:00 AM ET). Theta acceleration on 0DTE makes new entries unprofitable. Manage existing positions only.</div>
+                    </div>""", unsafe_allow_html=True)
+            except:
+                pass
+            
+            # ── Risk Warnings ──
+            if warnings:
+                for w in warnings:
+                    w_color = '#ffd740' if '⚠️' in w else '#00e676'
+                    st.markdown(f"""
+                    <div style="background:var(--bg-card);border:1px solid var(--border);border-left:3px solid {w_color};
+                                border-radius:10px;padding:10px 16px;margin:4px 0;font-family:JetBrains Mono;font-size:0.78rem;color:var(--t2);">
+                        {w}
+                    </div>""", unsafe_allow_html=True)
+            
+            # ── Scenario Banner ──
+            st.markdown(f"""
+            <div class="sig {sc['class']}">
+                <div class="sig-dir" style="color:{sc['color']};">SCENARIO {sc['number']}: {sc['name']}</div>
+                <div class="sig-detail">{sc['desc']}</div>
+            </div>""", unsafe_allow_html=True)
+            
+            # ── Channel Map (6 lines) ──
+            render_section_banner("📊", "Channel Structure", "6-line framework at 9 AM")
+            
+            if channels:
+                render_visual_ladder(
+                    lines=[{
+                        'value': l['value'], 'label': l['label'], 'full_name': l['full_name'],
+                        'color': l['color'], 'direction': l['direction'], 'is_key': l['is_key'],
+                    } for l in channels['all_lines']],
+                    current_price=current_price,
+                    title="Channel Structure",
+                    height=max(450, 6 * 55),
+                )
+            
+            # ── PRIMARY PLAY ──
+            if pri:
+                render_section_banner("🎯", "PRIMARY PLAY", pri['confidence'])
+                
+                pri_color = '#ff1744' if pri['direction'] == 'PUT' else '#00e676'
+                pri_icon = '🔻' if pri['direction'] == 'PUT' else '🔺'
+                tp1_price = pri.get('tp1_price', 0)
+                tp2_price = pri.get('tp2_price', 0)
+                pri_contracts = pri.get('contracts', 3)
+                
+                # Don't show trade card if time cutoff
+                if time_cutoff_hit:
+                    st.caption("Trade card suppressed — past time cutoff. Manage existing positions only.")
+                else:
+                    st.markdown(f"""
+                    <div class="tc" style="border-color:{pri_color}20;">
+                        <div class="tc-header">
+                            <span class="tc-title" style="color:{pri_color};">{pri_icon} BUY {pri_contracts}× {pri['direction']} — SPX {pri['strike']}</span>
+                            <span class="tc-meta">{abs(pri['strike'] - pri['entry_price']):.0f}pt OTM from entry • 0DTE • {pri_contracts} contracts</span>
+                        </div>
+                        <div class="tc-grid">
+                            <div class="tc-cell">
+                                <div class="tc-cell-label" style="color:{pri_color};">Entry Zone</div>
+                                <div class="tc-cell-val" style="color:{pri_color};">{pri['entry_price']:.2f}</div>
+                                <div class="tc-cell-sub">{pri['entry_line']['label']}</div>
+                            </div>
+                            <div class="tc-cell" style="background:rgba(255,23,68,0.03);">
+                                <div class="tc-cell-label" style="color:var(--red);">Stop Loss</div>
+                                <div class="tc-cell-val" style="color:var(--red);">{pri['stop_price']:.2f}</div>
+                                <div class="tc-cell-sub">{pri['stop_desc']}</div>
+                            </div>
+                            <div class="tc-cell" style="background:rgba(0,230,118,0.03);">
+                                <div class="tc-cell-label" style="color:var(--green);">Target 1 / Target 2</div>
+                                <div class="tc-cell-val" style="color:var(--green);">{tp1_price:.2f} / {tp2_price:.2f}</div>
+                                <div class="tc-cell-sub">{pri.get('tp1_desc','')} / {pri.get('tp2_desc','')}</div>
+                            </div>
+                        </div>
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                # Timing card
+                st.markdown(f"""
+                <div class="rules">
+                    <div class="rules-title">⏰ TIMING</div>
+                    <div class="rules-body">{pri['timing']}</div>
+                </div>""", unsafe_allow_html=True)
+            
+            # ── ALTERNATE PLAY ──
+            if alt:
+                render_section_banner("🔄", "ALTERNATE PLAY", alt.get('confidence', ''))
+                
+                alt_color = '#ff1744' if alt['direction'] == 'PUT' else '#00e676'
+                alt_icon = '🔻' if alt['direction'] == 'PUT' else '🔺'
+                alt_tp1 = alt.get('tp1_price', 0)
+                alt_tp2 = alt.get('tp2_price', 0)
+                
+                st.markdown(f"""
+                <div class="tc" style="border-color:{alt_color}15;opacity:0.85;">
+                    <div class="tc-header">
+                        <span class="tc-title" style="color:{alt_color};">{alt_icon} ALT: BUY {alt['direction']} — SPX {alt['strike']}</span>
+                        <span class="tc-meta">Alternate scenario</span>
+                    </div>
+                    <div class="tc-grid">
+                        <div class="tc-cell">
+                            <div class="tc-cell-label" style="color:{alt_color};">Entry Zone</div>
+                            <div class="tc-cell-val" style="color:{alt_color};">{alt['entry_price']:.2f}</div>
+                        </div>
+                        <div class="tc-cell" style="background:rgba(255,23,68,0.03);">
+                            <div class="tc-cell-label" style="color:var(--red);">Stop</div>
+                            <div class="tc-cell-val" style="color:var(--red);">{alt['stop_price']:.2f}</div>
+                            <div class="tc-cell-sub">{alt['stop_desc']}</div>
+                        </div>
+                        <div class="tc-cell" style="background:rgba(0,230,118,0.03);">
+                            <div class="tc-cell-label" style="color:var(--green);">TP1 / TP2</div>
+                            <div class="tc-cell-val" style="color:var(--green);">{alt_tp1:.2f} / {alt_tp2:.2f}</div>
+                            <div class="tc-cell-sub">{alt.get('tp1_desc','')} / {alt.get('tp2_desc','')}</div>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                st.markdown(f"""
+                <div class="rules">
+                    <div class="rules-title">⏰ ALTERNATE TIMING</div>
+                    <div class="rules-body">{alt['timing']}</div>
+                </div>""", unsafe_allow_html=True)
+            
+            # Use primary direction for downstream logic (premium, confluence)
+            trade_direction = pri['direction'] if pri else None
+            stop_line = pri.get('entry_line') if pri else None
+            entry_line = pri.get('entry_line') if pri else None
+        else:
+            st.warning("No channel structure available. Enter bounces/rejections in the sidebar.")
+            trade_direction = None
+            stop_line = None
+            entry_line = None
+        
+        st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
+        render_section_banner("🎯", "9:00 AM Decision", "Where is price in the ladder?")
         
         # ============================================================
         # BUILD 9 AM LINE LADDER (reuse from structural map)
