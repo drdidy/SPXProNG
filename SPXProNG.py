@@ -572,18 +572,30 @@ def calculate_channel_structure(bounces: list, rejections: list,
     
     Plus HW ascending and LW descending for extreme scenarios.
     """
-    nine_am = datetime.combine(next_day_date.date(), NY_DECISION_CT)
+    nine_am = datetime.combine(next_day_date.date() if hasattr(next_day_date, 'date') and callable(next_day_date.date) else next_day_date, NY_DECISION_CT)
+    
+    # Ensure prior_date is a date object
+    if prior_date is not None and hasattr(prior_date, 'date') and callable(prior_date.date):
+        prior_date_d = prior_date.date()
+    elif prior_date is not None:
+        prior_date_d = prior_date
+    else:
+        prior_date_d = None
     
     # ── Find lowest/highest CLOSE from 12-3 PM CT ──
     afternoon_low_close = None
     afternoon_high_close = None
     
-    if candles is not None and len(candles) > 0 and prior_date is not None:
+    if candles is not None and len(candles) > 0 and prior_date_d is not None:
         # Filter to afternoon session: 12:00 PM CT to 3:00 PM CT
         afternoon_candles = []
         for _, row in candles.iterrows():
             ct = row['datetime']
-            if ct.date() == prior_date and ct.hour >= 12 and ct.hour < 15:
+            try:
+                ct_date = ct.date() if hasattr(ct, 'date') else pd.Timestamp(ct).date()
+            except:
+                continue
+            if ct_date == prior_date_d and ct.hour >= 12 and ct.hour < 15:
                 # Apply ES-SPX offset to get SPX prices
                 close_spx = row['close'] - es_offset
                 afternoon_candles.append({
@@ -617,6 +629,10 @@ def calculate_channel_structure(bounces: list, rejections: list,
     low_time = afternoon_low_close['time']
     high_price = afternoon_high_close['price']
     high_time = afternoon_high_close['time']
+    
+    # Safety: if both anchors are the same, offset slightly to avoid zero-width channel
+    if abs(high_price - low_price) < 0.5:
+        high_price = low_price + 5  # minimum 5pt channel
     
     # ── ASCENDING CHANNEL ──
     # Floor: ascending line from lowest afternoon close
@@ -2444,6 +2460,12 @@ def main():
             
             # ── Channel Map (6 lines) ──
             render_section_banner("📊", "Channel Structure", "6-line framework at 9 AM")
+            
+            # Show the afternoon anchors for verification
+            aft_low = channels.get('afternoon_low')
+            aft_high = channels.get('afternoon_high')
+            if aft_low and aft_high:
+                st.caption(f"Afternoon anchors (12–3 PM CT): Lowest close {aft_low['price']:.2f} @ {aft_low['time'].strftime('%I:%M %p') if hasattr(aft_low['time'], 'strftime') else aft_low['time']} • Highest close {aft_high['price']:.2f} @ {aft_high['time'].strftime('%I:%M %p') if hasattr(aft_high['time'], 'strftime') else aft_high['time']}")
             
             if channels:
                 render_visual_ladder(
