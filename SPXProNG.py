@@ -789,29 +789,52 @@ def determine_scenario(channels: dict, current_price: float, confirmation_830: d
     
     elif in_asc and in_desc:
         # SCENARIO 7: OVERLAP ZONE — inside BOTH channels simultaneously
-        # Ascending floor above = PUT entry (price rises to it, gets rejected)
-        # Descending floor below = CALL entry (price drops to it, bounces)
+        # Find the nearest line ABOVE price (PUT entry) and nearest BELOW (CALL entry)
+        # from all 4 channel boundaries
+        all_boundaries = [
+            ('Asc Floor', af, channels['asc_floor']),
+            ('Asc Ceiling', ac, channels['asc_ceil']),
+            ('Desc Ceiling', dc, channels['desc_ceil']),
+            ('Desc Floor', df, channels['desc_floor']),
+        ]
+        
+        above = [(name, val, line) for name, val, line in all_boundaries if val > p]
+        below = [(name, val, line) for name, val, line in all_boundaries if val <= p]
+        
+        # Nearest above = PUT entry, nearest below = CALL entry
+        if above:
+            above.sort(key=lambda x: x[1])  # closest first
+            put_name, put_price, put_line = above[0]
+        else:
+            put_name, put_price, put_line = 'Asc Ceiling', ac, channels['asc_ceil']
+        
+        if below:
+            below.sort(key=lambda x: x[1], reverse=True)  # closest first
+            call_name, call_price, call_line = below[0]
+        else:
+            call_name, call_price, call_line = 'Desc Floor', df, channels['desc_floor']
+        
         scenario = {
             'number': 7, 'name': 'CHANNEL OVERLAP — COMPRESSION',
-            'desc': f'Price {p:.2f} is inside BOTH ascending ({af:.2f}–{ac:.2f}) and descending ({df:.2f}–{dc:.2f}) channels. Ascending floor is PUT entry, descending floor is CALL entry.',
+            'desc': f'Price {p:.2f} is inside BOTH channels. Nearest resistance: {put_name} at {put_price:.2f}. Nearest support: {call_name} at {call_price:.2f}.',
             'color': '#b388ff', 'class': 'neutral',
         }
         primary = {
-            'direction': 'PUT', 'entry_line': channels['asc_floor'],
-            'entry_price': af, 'stop_price': ac,
-            'stop_desc': f'Asc Ceiling at {ac:.2f}',
+            'direction': 'PUT', 'entry_line': put_line,
+            'entry_price': put_price, 'stop_price': ac if put_price < ac else hw,
+            'stop_desc': f'Asc Ceiling at {ac:.2f}' if put_price < ac else f'HW at {hw:.2f}',
             'tp1_line': channels['desc_floor'], 'tp1_price': df, 'tp1_desc': 'Desc Floor',
             'tp2_line': channels['lw_line'], 'tp2_price': lw, 'tp2_desc': 'LW Line',
-            'timing': 'When price rises to ascending floor and rejects',
+            'timing': f'When price rises to {put_name} at {put_price:.2f} and rejects',
             'confidence': 'MEDIUM — overlap creates compression, watch for clean rejection',
         }
         alternate = {
-            'direction': 'CALL', 'entry_line': channels['desc_floor'],
-            'entry_price': df, 'stop_price': lw,
-            'stop_desc': f'LW line at {lw:.2f}',
+            'direction': 'CALL', 'entry_line': call_line,
+            'entry_price': call_price, 'stop_price': df if call_price > df else lw,
+            'stop_desc': f'Desc Floor at {df:.2f}' if call_price > df else f'LW at {lw:.2f}',
             'tp1_price': af, 'tp1_desc': 'Asc Floor',
             'tp2_price': ac, 'tp2_desc': 'Asc Ceiling',
-            'timing': 'When price drops to descending floor and bounces',
+            'timing': f'When price drops to {call_name} at {call_price:.2f} and bounces',
             'confidence': 'MEDIUM — overlap creates compression, watch for clean bounce',
         }
     
