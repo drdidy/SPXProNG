@@ -222,47 +222,6 @@ def calculate_line_value(anchor_price: float, anchor_time: datetime,
         return anchor_price - (RATE_PER_CANDLE * candles)
 
 
-def generate_line_series(anchor_price: float, anchor_time: datetime,
-                         start_time: datetime, end_time: datetime,
-                         direction: str) -> list:
-    """
-    Generate a series of (datetime, price) tuples for plotting a projected line.
-    """
-    points = []
-    current = anchor_time
-    
-    # First point at anchor
-    points.append((anchor_time, anchor_price))
-    
-    # Step forward in 30-min increments
-    while current < end_time:
-        current += timedelta(minutes=CANDLE_MINUTES)
-        current_time_only = current.time()
-        weekday = current.weekday()
-        
-        # Skip Saturday entirely
-        if weekday == 5:
-            continue
-        
-        # Skip Sunday before 5:00 PM CT
-        if weekday == 6 and current_time_only < MAINTENANCE_END_CT:
-            continue
-        
-        # Skip Friday after 4:00 PM CT (no evening session)
-        if weekday == 4 and current_time_only >= MAINTENANCE_START_CT:
-            continue
-        
-        # Skip maintenance window (4:00 PM - 5:00 PM CT) Mon-Thu
-        if MAINTENANCE_START_CT <= current_time_only < MAINTENANCE_END_CT:
-            continue
-        
-        value = calculate_line_value(anchor_price, anchor_time, current, direction)
-        points.append((current, value))
-    
-    # Filter to only show from start_time onward
-    points = [(t, v) for t, v in points if t >= start_time]
-    
-    return points
 
 
 def render_visual_ladder(lines: list, current_price: float = None, 
@@ -417,27 +376,6 @@ def render_signal_display(signal_text: str, signal_detail: str, signal_class: st
     </div>""", unsafe_allow_html=True)
 
 
-def render_scenario_cards(scenarios: list, num_contracts: int = 3):
-    """V2 premium scenario cards."""
-    import streamlit as st
-    html = '<div class="sc-grid">'
-    for s in scenarios:
-        pnl_per_contract = (s['premium'] - s['entry_premium']) * 100
-        pnl_total = pnl_per_contract * num_contracts
-        pnl_color = '#00e676' if pnl_total >= 0 else '#ff1744'
-        pnl_sign = '+' if pnl_total >= 0 else ''
-        pnl_pct = ((s['premium'] - s['entry_premium']) / s['entry_premium'] * 100) if s['entry_premium'] > 0 else 0
-        color = s['color']
-        html += f"""<div class="sc" style="border-top:2px solid {color}50;">
-            <div class="sc-label" style="color:{color};">{s['label']}</div>
-            <div style="font-family:JetBrains Mono;font-size:0.6rem;color:var(--t3);margin:2px 0;">{s['spx_label']}</div>
-            <div class="sc-premium" style="color:{color};">${s['premium']:.2f}</div>
-            <div style="font-family:JetBrains Mono;font-size:0.6rem;color:var(--t3);">${s['premium']*100:.0f}/contract</div>
-            <div class="sc-pnl" style="color:{pnl_color};font-weight:700;">
-                {pnl_sign}${pnl_total:,.0f} <span style="font-size:0.6rem;opacity:0.6;">({pnl_sign}{pnl_pct:.0f}%)</span></div>
-        </div>"""
-    html += '</div>'
-    st.markdown(html, unsafe_allow_html=True)
 
 
 def render_metric_row(metrics: list):
@@ -470,88 +408,6 @@ def render_section_banner(icon: str, title: str, subtitle: str = "", color: str 
     </div>""", unsafe_allow_html=True)
 
 
-def calculate_nine_am_levels(bounces: list, rejections: list,
-                             highest_wick: dict, lowest_wick: dict,
-                             next_day_date: datetime) -> dict:
-    """
-    Calculate the four key horizontal levels at 9:00 AM CT the next day.
-    
-    bounces: list of {'price': float, 'time': datetime}
-    rejections: list of {'price': float, 'time': datetime}
-    highest_wick: {'price': float, 'time': datetime}
-    lowest_wick: {'price': float, 'time': datetime}
-    """
-    nine_am = datetime.combine(next_day_date.date(), NY_DECISION_CT)
-    
-    # Calculate all ascending lines at 9 AM (from bounces + highest wick)
-    ascending_at_9am = []
-    for bounce in bounces:
-        val = calculate_line_value(bounce['price'], bounce['time'], nine_am, 'ascending')
-        ascending_at_9am.append({
-            'source': f"Bounce @ {bounce['price']:.2f} ({bounce['time'].strftime('%I:%M %p')})",
-            'anchor_price': bounce['price'],
-            'anchor_time': bounce['time'],
-            'value_at_9am': val,
-            'type': 'bounce'
-        })
-    
-    # Highest wick ascending
-    hw_val = calculate_line_value(highest_wick['price'], highest_wick['time'], nine_am, 'ascending')
-    ascending_at_9am.append({
-        'source': f"Highest Wick @ {highest_wick['price']:.2f} ({highest_wick['time'].strftime('%I:%M %p')})",
-        'anchor_price': highest_wick['price'],
-        'anchor_time': highest_wick['time'],
-        'value_at_9am': hw_val,
-        'type': 'highest_wick'
-    })
-    
-    # Calculate all descending lines at 9 AM (from rejections + lowest wick)
-    descending_at_9am = []
-    for rejection in rejections:
-        val = calculate_line_value(rejection['price'], rejection['time'], nine_am, 'descending')
-        descending_at_9am.append({
-            'source': f"Rejection @ {rejection['price']:.2f} ({rejection['time'].strftime('%I:%M %p')})",
-            'anchor_price': rejection['price'],
-            'anchor_time': rejection['time'],
-            'value_at_9am': val,
-            'type': 'rejection'
-        })
-    
-    # Lowest wick descending
-    lw_val = calculate_line_value(lowest_wick['price'], lowest_wick['time'], nine_am, 'descending')
-    descending_at_9am.append({
-        'source': f"Lowest Wick @ {lowest_wick['price']:.2f} ({lowest_wick['time'].strftime('%I:%M %p')})",
-        'anchor_price': lowest_wick['price'],
-        'anchor_time': lowest_wick['time'],
-        'value_at_9am': lw_val,
-        'type': 'lowest_wick'
-    })
-    
-    # Sort to find the key levels
-    ascending_at_9am.sort(key=lambda x: x['value_at_9am'], reverse=True)
-    descending_at_9am.sort(key=lambda x: x['value_at_9am'])
-    
-    # Identify the four key lines
-    highest_wick_asc = next((l for l in ascending_at_9am if l['type'] == 'highest_wick'), ascending_at_9am[0])
-    highest_bounce_asc = next((l for l in ascending_at_9am if l['type'] == 'bounce'), None)
-    
-    # If highest bounce is actually higher than highest wick, swap labels for clarity
-    # The "highest" refers to the line with the highest 9am value
-    
-    lowest_wick_desc = next((l for l in descending_at_9am if l['type'] == 'lowest_wick'), descending_at_9am[0])
-    lowest_rejection_desc = next((l for l in descending_at_9am if l['type'] == 'rejection'), None)
-    
-    return {
-        'ascending': ascending_at_9am,
-        'descending': descending_at_9am,
-        'key_levels': {
-            'highest_wick_ascending': highest_wick_asc,
-            'highest_bounce_ascending': highest_bounce_asc,
-            'lowest_wick_descending': lowest_wick_desc,
-            'lowest_rejection_descending': lowest_rejection_desc,
-        },
-        'nine_am_time': nine_am
-    }
 
 
 def calculate_channel_structure(bounces: list, rejections: list,
@@ -560,17 +416,17 @@ def calculate_channel_structure(bounces: list, rejections: list,
                                 candles: pd.DataFrame = None,
                                 prior_date=None, es_offset: float = 0.0) -> dict:
     """
-    Build the 6-line channel structure.
+    Build the 6-line channel structure from afternoon (12 PM - 4 PM CT) price action.
     
-    Channel anchors = lowest close and highest close from 12-3 PM CT.
+    Ascending channel:
+      Ceiling = ascending line from highest wick (high) of a bearish candle after 12 PM CT
+      Floor = ascending line from lowest close after 12 PM CT
     
-    From those two prices:
-    - Ascending line from lowest close = ascending channel floor
-    - Ascending line from highest close = ascending channel ceiling
-    - Descending line from highest close = descending channel ceiling
-    - Descending line from lowest close = descending channel floor
+    Descending channel:
+      Ceiling = descending line from highest close after 12 PM CT
+      Floor = descending line from lowest wick (low) of a bullish candle after 12 PM CT
     
-    Plus HW ascending and LW descending for extreme scenarios.
+    Plus HW ascending (full session) and LW descending (full session) for extreme scenarios.
     """
     nine_am = datetime.combine(next_day_date.date() if hasattr(next_day_date, 'date') and callable(next_day_date.date) else next_day_date, NY_DECISION_CT)
     
@@ -582,111 +438,133 @@ def calculate_channel_structure(bounces: list, rejections: list,
     else:
         prior_date_d = None
     
-    # ── Find lowest/highest CLOSE from 12-3 PM CT ──
-    afternoon_low_close = None
-    afternoon_high_close = None
+    # ── Scan afternoon candles (12 PM - 4 PM CT) for 4 anchors ──
+    afternoon_lowest_close = None       # Ascending channel floor
+    afternoon_highest_bearish_wick = None  # Ascending channel ceiling
+    afternoon_highest_close = None      # Descending channel ceiling
+    afternoon_lowest_bullish_wick = None   # Descending channel floor
     
     if candles is not None and len(candles) > 0 and prior_date_d is not None:
-        # Filter to afternoon session: 12:00 PM CT to 4:00 PM CT (close)
-        afternoon_candles = []
+        best_low_close = float('inf')
+        best_low_close_time = None
+        best_high_bearish_wick = -1
+        best_high_bearish_wick_time = None
+        best_high_close = -1
+        best_high_close_time = None
+        best_low_bullish_wick = float('inf')
+        best_low_bullish_wick_time = None
+        
         for _, row in candles.iterrows():
             ct = row['datetime']
             try:
                 ct_date = ct.date() if hasattr(ct, 'date') else pd.Timestamp(ct).date()
             except:
                 continue
-            if ct_date == prior_date_d and ct.hour >= 12 and ct.hour < 16:
-                # Apply ES-SPX offset to get SPX prices
-                close_spx = row['close'] - es_offset
-                afternoon_candles.append({
-                    'price': close_spx,
-                    'time': ct,
-                    'raw_close': row['close'],
-                })
+            if ct_date != prior_date_d or ct.hour < 12 or ct.hour >= 16:
+                continue
+            
+            # Apply ES-SPX offset
+            o = row['open'] - es_offset
+            h = row['high'] - es_offset
+            l = row['low'] - es_offset
+            c = row['close'] - es_offset
+            is_bearish = c < o
+            is_bullish = c > o
+            
+            # Lowest close (ascending channel floor)
+            if c < best_low_close:
+                best_low_close = c
+                best_low_close_time = ct
+            
+            # Highest close (descending channel ceiling)
+            if c > best_high_close:
+                best_high_close = c
+                best_high_close_time = ct
+            
+            # Highest wick of bearish candle (ascending channel ceiling)
+            if is_bearish and h > best_high_bearish_wick:
+                best_high_bearish_wick = h
+                best_high_bearish_wick_time = ct
+            
+            # Lowest wick of bullish candle (descending channel floor)
+            if is_bullish and l < best_low_bullish_wick:
+                best_low_bullish_wick = l
+                best_low_bullish_wick_time = ct
         
-        if afternoon_candles:
-            lowest = min(afternoon_candles, key=lambda x: x['price'])
-            highest = max(afternoon_candles, key=lambda x: x['price'])
-            afternoon_low_close = {'price': lowest['price'], 'time': lowest['time']}
-            afternoon_high_close = {'price': highest['price'], 'time': highest['time']}
+        if best_low_close_time:
+            afternoon_lowest_close = {'price': best_low_close, 'time': best_low_close_time}
+        if best_high_bearish_wick_time:
+            afternoon_highest_bearish_wick = {'price': best_high_bearish_wick, 'time': best_high_bearish_wick_time}
+        if best_high_close_time:
+            afternoon_highest_close = {'price': best_high_close, 'time': best_high_close_time}
+        if best_low_bullish_wick_time:
+            afternoon_lowest_bullish_wick = {'price': best_low_bullish_wick, 'time': best_low_bullish_wick_time}
     
-    # Fallback: use bounces/rejections if no candle data
-    if afternoon_low_close is None:
-        if bounces:
-            lowest_bounce = min(bounces, key=lambda x: x['price'])
-            afternoon_low_close = lowest_bounce
-        else:
-            afternoon_low_close = lowest_wick
+    # Fallbacks if candle data not available
+    if afternoon_lowest_close is None:
+        afternoon_lowest_close = lowest_wick
+    if afternoon_highest_bearish_wick is None:
+        afternoon_highest_bearish_wick = highest_wick
+    if afternoon_highest_close is None:
+        afternoon_highest_close = highest_wick
+    if afternoon_lowest_bullish_wick is None:
+        afternoon_lowest_bullish_wick = lowest_wick
     
-    if afternoon_high_close is None:
-        if rejections:
-            highest_rejection = max(rejections, key=lambda x: x['price'])
-            afternoon_high_close = highest_rejection
-        else:
-            afternoon_high_close = highest_wick
+    # ── ASCENDING CHANNEL ──
+    # Floor = ascending line from lowest close
+    # Ceiling = ascending line from highest bearish wick
+    asc_floor_anchor = afternoon_lowest_close
+    asc_ceil_anchor = afternoon_highest_bearish_wick
     
-    low_price = afternoon_low_close['price']
-    low_time = afternoon_low_close['time']
-    high_price = afternoon_high_close['price']
-    high_time = afternoon_high_close['time']
+    asc_floor_val = calculate_line_value(asc_floor_anchor['price'], asc_floor_anchor['time'], nine_am, 'ascending')
+    asc_ceil_val = calculate_line_value(asc_ceil_anchor['price'], asc_ceil_anchor['time'], nine_am, 'ascending')
     
-    # Safety: if both anchors are the same, offset slightly to avoid zero-width channel
-    if abs(high_price - low_price) < 0.5:
-        high_price = low_price + 5  # minimum 5pt channel
-    
-    # ── FROM HIGHEST CLOSE: one ascending + one descending (V shape) ──
-    high_asc_val = calculate_line_value(high_price, high_time, nine_am, 'ascending')
-    high_desc_val = calculate_line_value(high_price, high_time, nine_am, 'descending')
-    
-    # ── FROM LOWEST CLOSE: one ascending + one descending (V shape) ──
-    low_asc_val = calculate_line_value(low_price, low_time, nine_am, 'ascending')
-    low_desc_val = calculate_line_value(low_price, low_time, nine_am, 'descending')
-    
-    # ASCENDING CHANNEL = the two ascending lines (one from each anchor)
-    # Floor = lower of the two, Ceiling = higher of the two
-    if low_asc_val <= high_asc_val:
-        asc_floor_val, asc_floor_anchor, asc_floor_time = low_asc_val, low_price, low_time
-        asc_ceil_val, asc_ceil_anchor, asc_ceil_time = high_asc_val, high_price, high_time
-    else:
-        asc_floor_val, asc_floor_anchor, asc_floor_time = high_asc_val, high_price, high_time
-        asc_ceil_val, asc_ceil_anchor, asc_ceil_time = low_asc_val, low_price, low_time
+    # Ensure floor < ceiling
+    if asc_floor_val > asc_ceil_val:
+        asc_floor_val, asc_ceil_val = asc_ceil_val, asc_floor_val
+        asc_floor_anchor, asc_ceil_anchor = asc_ceil_anchor, asc_floor_anchor
     
     asc_floor = {
         'label': 'ASC Floor', 'value': asc_floor_val, 'direction': 'ascending',
         'color': '#ff5252', 'is_key': True, 'channel': 'ascending',
-        'anchor': asc_floor_anchor, 'anchor_time': asc_floor_time,
-        'full_name': f"Asc Floor ({asc_floor_anchor:.0f})"
+        'anchor': asc_floor_anchor['price'], 'anchor_time': asc_floor_anchor['time'],
+        'full_name': f"Asc Floor ({asc_floor_anchor['price']:.0f})"
     }
     asc_ceil = {
         'label': 'ASC Ceil', 'value': asc_ceil_val, 'direction': 'ascending',
         'color': '#ff1744', 'is_key': True, 'channel': 'ascending',
-        'anchor': asc_ceil_anchor, 'anchor_time': asc_ceil_time,
-        'full_name': f"Asc Ceiling ({asc_ceil_anchor:.0f})"
+        'anchor': asc_ceil_anchor['price'], 'anchor_time': asc_ceil_anchor['time'],
+        'full_name': f"Asc Ceiling ({asc_ceil_anchor['price']:.0f})"
     }
     
-    # DESCENDING CHANNEL = the two descending lines (one from each anchor)
-    # Floor = lower of the two, Ceiling = higher of the two
-    if low_desc_val <= high_desc_val:
-        desc_floor_val, desc_floor_anchor, desc_floor_time = low_desc_val, low_price, low_time
-        desc_ceil_val, desc_ceil_anchor, desc_ceil_time = high_desc_val, high_price, high_time
-    else:
-        desc_floor_val, desc_floor_anchor, desc_floor_time = high_desc_val, high_price, high_time
-        desc_ceil_val, desc_ceil_anchor, desc_ceil_time = low_desc_val, low_price, low_time
+    # ── DESCENDING CHANNEL ──
+    # Ceiling = descending line from highest close
+    # Floor = descending line from lowest bullish wick
+    desc_ceil_anchor = afternoon_highest_close
+    desc_floor_anchor = afternoon_lowest_bullish_wick
+    
+    desc_ceil_val = calculate_line_value(desc_ceil_anchor['price'], desc_ceil_anchor['time'], nine_am, 'descending')
+    desc_floor_val = calculate_line_value(desc_floor_anchor['price'], desc_floor_anchor['time'], nine_am, 'descending')
+    
+    # Ensure floor < ceiling
+    if desc_floor_val > desc_ceil_val:
+        desc_floor_val, desc_ceil_val = desc_ceil_val, desc_floor_val
+        desc_floor_anchor, desc_ceil_anchor = desc_ceil_anchor, desc_floor_anchor
     
     desc_ceil = {
         'label': 'DESC Ceil', 'value': desc_ceil_val, 'direction': 'descending',
         'color': '#69f0ae', 'is_key': True, 'channel': 'descending',
-        'anchor': desc_ceil_anchor, 'anchor_time': desc_ceil_time,
-        'full_name': f"Desc Ceiling ({desc_ceil_anchor:.0f})"
+        'anchor': desc_ceil_anchor['price'], 'anchor_time': desc_ceil_anchor['time'],
+        'full_name': f"Desc Ceiling ({desc_ceil_anchor['price']:.0f})"
     }
     desc_floor = {
         'label': 'DESC Floor', 'value': desc_floor_val, 'direction': 'descending',
         'color': '#00e676', 'is_key': True, 'channel': 'descending',
-        'anchor': desc_floor_anchor, 'anchor_time': desc_floor_time,
-        'full_name': f"Desc Floor ({desc_floor_anchor:.0f})"
+        'anchor': desc_floor_anchor['price'], 'anchor_time': desc_floor_anchor['time'],
+        'full_name': f"Desc Floor ({desc_floor_anchor['price']:.0f})"
     }
     
-    # ── WICK LINES (extreme outliers) ──
+    # ── WICK LINES (full session 8:30 AM - 4 PM CT extremes) ──
     hw_val = calculate_line_value(highest_wick['price'], highest_wick['time'], nine_am, 'ascending')
     hw_line = {
         'label': 'HW ↗', 'value': hw_val, 'direction': 'ascending',
@@ -717,8 +595,12 @@ def calculate_channel_structure(bounces: list, rejections: list,
         'all_lines': [hw_line, asc_ceil, asc_floor, desc_ceil, desc_floor, lw_line],
         'asc_width': asc_width,
         'desc_width': desc_width,
-        'afternoon_low': afternoon_low_close,
-        'afternoon_high': afternoon_high_close,
+        'afternoon_anchors': {
+            'asc_floor': asc_floor_anchor,
+            'asc_ceil': asc_ceil_anchor,
+            'desc_ceil': desc_ceil_anchor,
+            'desc_floor': desc_floor_anchor,
+        },
     }
 
 
@@ -1006,6 +888,8 @@ def determine_scenario(channels: dict, current_price: float, confirmation_830: d
     # RISK FILTERS & POSITION SIZING
     # ============================================================
     warnings = []
+    sit_out = False
+    sit_out_reason = ""
     
     # Channel width check (sweet spot 5-12 pts)
     asc_w = channels.get('asc_width', 0)
@@ -1014,6 +898,8 @@ def determine_scenario(channels: dict, current_price: float, confirmation_830: d
         relevant_width = asc_w if primary['direction'] == 'PUT' else desc_w
         if relevant_width < 3:
             warnings.append(f"⚠️ Channel width only {relevant_width:.1f}pt — stop is very tight, high chop risk")
+            sit_out = True
+            sit_out_reason = f"Channel width {relevant_width:.1f}pt is too narrow (< 3pt). Chop will stop you out."
         elif relevant_width > 15:
             warnings.append(f"⚠️ Channel width {relevant_width:.1f}pt — very wide, slow premium move on stop")
     
@@ -1022,8 +908,18 @@ def determine_scenario(channels: dict, current_price: float, confirmation_830: d
         gap_to_entry = abs(current_price - primary['entry_price'])
         if gap_to_entry > 10:
             warnings.append(f"⚠️ Price is {gap_to_entry:.1f}pt from entry — may take too long for 0DTE")
+            if gap_to_entry > 15:
+                sit_out = True
+                sit_out_reason = f"Price is {gap_to_entry:.1f}pt from entry. Theta will destroy the premium before price arrives."
         elif gap_to_entry < 1:
             warnings.append(f"✅ Price is {gap_to_entry:.1f}pt from entry — right at the level")
+    
+    # 8:30 confirmation failed AND not inside either channel = no edge
+    if confirmation_830:
+        if confirmation_830.get('passed') is False and scenario and scenario.get('number') == 1:
+            # Between channels AND 8:30 failed — worst position
+            sit_out = True
+            sit_out_reason = "8:30 confirmation failed and price is between channels. No structural edge. Wait."
     
     # Confidence-based contract sizing
     # HIGH = 3 contracts, MEDIUM = 2, LOW = 1
@@ -1044,35 +940,10 @@ def determine_scenario(channels: dict, current_price: float, confirmation_830: d
         'primary': primary,
         'alternate': alternate,
         'warnings': warnings,
+        'sit_out': sit_out,
+        'sit_out_reason': sit_out_reason,
     }
 
-
-# ============================================================
-# PROP FIRM RISK CALCULATOR
-# ============================================================
-
-def calculate_prop_firm_risk(daily_limit: float, stop_points: float, 
-                             instrument: str = 'ES') -> dict:
-    """Calculate position sizing for prop firm accounts."""
-    point_value = 50.0 if instrument == 'ES' else 5.0  # ES=$50/pt, MES=$5/pt
-    risk_per_trade = daily_limit * 0.40  # 40% of daily limit
-    
-    contracts = int(risk_per_trade / (stop_points * point_value))
-    actual_risk = contracts * stop_points * point_value
-    
-    profit_5pt = contracts * 5 * point_value
-    profit_10pt = contracts * 10 * point_value
-    
-    return {
-        'contracts': contracts,
-        'risk_per_trade': actual_risk,
-        'max_trades': 2,
-        'remaining_after_1_loss': daily_limit - actual_risk,
-        'profit_5pt_move': profit_5pt,
-        'profit_10pt_move': profit_10pt,
-        'point_value': point_value,
-        'instrument': instrument
-    }
 
 
 # ============================================================
@@ -1710,59 +1581,6 @@ def estimate_option_premium(spx_price: float, strike: float, vix: float,
     return max(0.25, round(adjusted * 4) / 4)  # min $0.25, round to nearest 0.25
 
 
-def project_premium_at_scenarios(current_spx: float, strike: float, vix: float,
-                                  opt_type: str, stop_price: float,
-                                  tp1_price: float, tp2_price: float,
-                                  base_premium: float = None,
-                                  current_hours: float = 6.5,
-                                  entry_hours: float = 5.9) -> dict:
-    """
-    Project option premium at 9:05 AM entry under three scenarios using actual trade levels.
-    
-    If base_premium (live 8:30 AM price) is available, calibrates the model to match it,
-    then projects forward. Otherwise uses pure estimation.
-    
-    Args:
-        current_spx: SPX price right now
-        strike: Option strike
-        vix: Current VIX
-        opt_type: 'CALL' or 'PUT'
-        stop_price: SPX stop loss level
-        tp1_price: SPX Target 1 level
-        tp2_price: SPX Target 2 level  
-        base_premium: Live premium pulled at 8:30 AM (None if unavailable)
-        current_hours: Hours to expiry at time of live pull (default 6.5 = 8:30 AM)
-        entry_hours: Hours to expiry at 9:05 AM entry (default 5.9)
-    
-    Returns:
-        Dict with scenario projections
-    """
-    # Estimate premiums at different SPX levels at entry time
-    est_at_entry = estimate_option_premium(current_spx, strike, vix, entry_hours, opt_type)
-    est_at_stop = estimate_option_premium(stop_price, strike, vix, entry_hours, opt_type)
-    est_at_tp1 = estimate_option_premium(tp1_price, strike, vix, entry_hours, opt_type)
-    est_at_tp2 = estimate_option_premium(tp2_price, strike, vix, entry_hours, opt_type)
-    
-    # If we have a live base premium, calibrate with a scaling factor
-    if base_premium and base_premium > 0:
-        est_now = estimate_option_premium(current_spx, strike, vix, current_hours, opt_type)
-        if est_now > 0:
-            calibration = base_premium / est_now
-        else:
-            calibration = 1.0
-        
-        est_at_entry = round(est_at_entry * calibration * 4) / 4
-        est_at_stop = round(est_at_stop * calibration * 4) / 4
-        est_at_tp1 = round(est_at_tp1 * calibration * 4) / 4
-        est_at_tp2 = round(est_at_tp2 * calibration * 4) / 4
-    
-    return {
-        'at_entry': max(0.25, est_at_entry),
-        'at_stop': max(0.25, est_at_stop),
-        'at_tp1': max(0.25, est_at_tp1),
-        'at_tp2': max(0.25, est_at_tp2),
-        'calibrated': base_premium is not None and base_premium > 0,
-    }
 
 
 # ============================================================
@@ -2299,7 +2117,6 @@ def main():
     
     # Calculate 9 AM levels
     next_day_dt = datetime.combine(next_date, time(9, 0))
-    levels = calculate_nine_am_levels(bounces, rejections, highest_wick, lowest_wick, next_day_dt)
     
     # ES-SPX offset (needed for channel calculation and live price)
     es_offset_val = st.session_state.get('_es_offset', 0.0)
@@ -2435,10 +2252,18 @@ def main():
             lw = channels['lw_line']
             
             # Show afternoon anchors
-            aft_low = channels.get('afternoon_low')
-            aft_high = channels.get('afternoon_high')
-            if aft_low and aft_high:
-                st.caption(f"Anchors (12–3 PM CT closes): Highest {aft_high['price']:.2f} @ {aft_high['time'].strftime('%I:%M %p') if hasattr(aft_high['time'], 'strftime') else aft_high['time']} • Lowest {aft_low['price']:.2f} @ {aft_low['time'].strftime('%I:%M %p') if hasattr(aft_low['time'], 'strftime') else aft_low['time']}")
+            anchors = channels.get('afternoon_anchors', {})
+            if anchors:
+                af_anc = anchors.get('asc_floor', {})
+                ac_anc = anchors.get('asc_ceil', {})
+                dc_anc = anchors.get('desc_ceil', {})
+                df_anc = anchors.get('desc_floor', {})
+                def _fmt(a):
+                    if not a: return "N/A"
+                    t = a.get('time', '')
+                    ts = t.strftime('%I:%M %p') if hasattr(t, 'strftime') else str(t)
+                    return f"{a.get('price',0):.2f} @ {ts}"
+                st.caption(f"Afternoon anchors → Asc: floor(low close) {_fmt(af_anc)} • ceil(bearish wick) {_fmt(ac_anc)} | Desc: ceil(high close) {_fmt(dc_anc)} • floor(bullish wick) {_fmt(df_anc)}")
             
             # 6-card grid: HW | ASC Ceil | ASC Floor | DESC Ceil | DESC Floor | LW
             cards_html = '<div style="display:grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 10px 0;">'
@@ -2488,6 +2313,15 @@ def main():
             pri = playbook['primary']
             alt = playbook['alternate']
             warnings = playbook.get('warnings', [])
+            sit_out = playbook.get('sit_out', False)
+            sit_out_reason = playbook.get('sit_out_reason', '')
+            
+            # ── Fed/CPI Day Toggle ──
+            fed_day = st.toggle("🚫 Fed / CPI / Major News Day", value=False, 
+                                help="Enable on FOMC, CPI, NFP, or other major news days. Suppresses all trade signals.")
+            if fed_day:
+                sit_out = True
+                sit_out_reason = "Major news day (Fed/CPI/NFP). Structure is unreliable. Do not trade."
             
             # ── Time cutoff check ──
             time_cutoff_hit = False
@@ -2497,16 +2331,21 @@ def main():
                 now_ct = datetime.now(ct_tz).replace(tzinfo=None)
                 if now_ct.hour >= 10 and now_ct.date() == next_date:
                     time_cutoff_hit = True
-                    st.markdown("""
-                    <div class="sig neutral">
-                        <div class="sig-dir" style="color:var(--gold);">⏰ TIME CUTOFF — NO NEW ENTRIES</div>
-                        <div class="sig-detail">It is past 10:00 AM CT (11:00 AM ET). Theta acceleration on 0DTE makes new entries unprofitable. Manage existing positions only.</div>
-                    </div>""", unsafe_allow_html=True)
+                    sit_out = True
+                    sit_out_reason = "Past 10:00 AM CT. Theta acceleration on 0DTE makes new entries unprofitable."
             except:
                 pass
             
+            # ── SIT OUT BANNER ──
+            if sit_out:
+                st.markdown(f"""
+                <div class="sig bear">
+                    <div class="sig-dir" style="color:var(--red);">🚫 SIT OUT — DO NOT TRADE</div>
+                    <div class="sig-detail">{sit_out_reason}</div>
+                </div>""", unsafe_allow_html=True)
+            
             # ── Risk Warnings ──
-            if warnings:
+            if warnings and not sit_out:
                 for w in warnings:
                     w_color = '#ffd740' if '⚠️' in w else '#00e676'
                     st.markdown(f"""
@@ -2526,10 +2365,14 @@ def main():
             render_section_banner("📊", "Channel Structure", "6-line framework at 9 AM")
             
             # Show the afternoon anchors for verification
-            aft_low = channels.get('afternoon_low')
-            aft_high = channels.get('afternoon_high')
-            if aft_low and aft_high:
-                st.caption(f"Afternoon anchors (12–3 PM CT): Lowest close {aft_low['price']:.2f} @ {aft_low['time'].strftime('%I:%M %p') if hasattr(aft_low['time'], 'strftime') else aft_low['time']} • Highest close {aft_high['price']:.2f} @ {aft_high['time'].strftime('%I:%M %p') if hasattr(aft_high['time'], 'strftime') else aft_high['time']}")
+            anchors2 = channels.get('afternoon_anchors', {})
+            if anchors2:
+                def _fmt2(a):
+                    if not a: return "N/A"
+                    t = a.get('time', '')
+                    ts = t.strftime('%I:%M %p') if hasattr(t, 'strftime') else str(t)
+                    return f"{a.get('price',0):.2f} @ {ts}"
+                st.caption(f"Asc: floor {_fmt2(anchors2.get('asc_floor'))} • ceil {_fmt2(anchors2.get('asc_ceil'))} | Desc: ceil {_fmt2(anchors2.get('desc_ceil'))} • floor {_fmt2(anchors2.get('desc_floor'))}")
             
             if channels:
                 render_visual_ladder(
@@ -2553,8 +2396,8 @@ def main():
                 pri_contracts = pri.get('contracts', 3)
                 
                 # Don't show trade card if time cutoff
-                if time_cutoff_hit:
-                    st.caption("Trade card suppressed — past time cutoff. Manage existing positions only.")
+                if sit_out:
+                    st.caption(f"Trade card suppressed — {sit_out_reason}")
                 else:
                     st.markdown(f"""
                     <div class="tc" style="border-color:{pri_color}20;">
@@ -2587,6 +2430,19 @@ def main():
                 <div class="rules">
                     <div class="rules-title">⏰ TIMING</div>
                     <div class="rules-body">{pri['timing']}</div>
+                </div>""", unsafe_allow_html=True)
+                
+                # Profit management rules
+                st.markdown(f"""
+                <div class="rules">
+                    <div class="rules-title">💰 PROFIT MANAGEMENT</div>
+                    <div class="rules-body">
+                        ENTRY — Buy {pri_contracts}× SPX {pri['strike']} {'P' if pri['direction'] == 'PUT' else 'C'}<br>
+                        AT TP1 ({tp1_price:.2f}) — Close {max(1, pri_contracts - 1)} contracts. Move stop to BREAKEVEN on remaining {min(1, pri_contracts)}.<br>
+                        AT TP2 ({tp2_price:.2f}) — Close final contract. Trade complete.<br>
+                        STOP ({pri['stop_price']:.2f}) — Close ALL {pri_contracts} contracts immediately.<br>
+                        TIME STOP — If not at TP1 by 10:30 AM CT, close everything.
+                    </div>
                 </div>""", unsafe_allow_html=True)
             
             # ── ALTERNATE PLAY ──
